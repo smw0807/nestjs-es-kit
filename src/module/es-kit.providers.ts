@@ -29,8 +29,7 @@ export const createFeatureInitializerProvider = (schemas: EsDocumentClass[]): Pr
   inject: [EsIndexManager],
   useFactory: (manager: EsIndexManager): OnModuleInit => ({
     async onModuleInit(): Promise<void> {
-      manager.setSchemas(schemas);
-      await manager.onModuleInit();
+      await manager.synchronizeSchemas(schemas);
     },
   }),
 });

@@ -21,16 +21,16 @@ export class EsIndexManager implements OnModuleInit {
     this.schemas = schemas ?? [];
   }
 
-  setSchemas(schemas: EsDocumentClass[]): void {
-    this.schemas = schemas;
+  async onModuleInit(): Promise<void> {
+    await this.synchronizeSchemas(this.schemas);
   }
 
-  async onModuleInit(): Promise<void> {
+  async synchronizeSchemas(schemas: EsDocumentClass[]): Promise<void> {
     if (this.options.synchronize === 'none') {
       return;
     }
 
-    for (const schema of this.schemas) {
+    for (const schema of schemas) {
       if (this.options.synchronize === 'sync') {
         await this.syncMapping(schema);
       } else {
