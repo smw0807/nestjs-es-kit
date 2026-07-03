@@ -30,6 +30,7 @@
     "clean": "rimraf dist coverage",
     "lint": "eslint . --ext .ts",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

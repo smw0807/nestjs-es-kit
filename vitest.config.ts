@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    include: ['test/**/*.test.ts'],
+    exclude: ['test/integration/**'],
     coverage: {
       reporter: ['text', 'lcov'],
     },
