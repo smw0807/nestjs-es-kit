@@ -5,7 +5,7 @@
 [![npm version](https://badge.fury.io/js/nestjs-es-kit.svg)](https://badge.fury.io/js/nestjs-es-kit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> 한국어 문서: [README.ko.md](./README.ko.md)
+> 한국어 문서: [README.ko.md](https://github.com/smw0807/nestjs-es-kit/blob/main/README.ko.md)
 
 Declare your Elasticsearch schema once as a decorated TypeScript class — `nestjs-es-kit` handles index creation, mapping synchronization, and breaking-change detection automatically at application bootstrap.
 
@@ -24,23 +24,23 @@ class Product {
 
 The official `@nestjs/elasticsearch` (~131k weekly downloads) wraps the ES client for DI — nothing more. Every team ends up writing the same boilerplate across projects:
 
-| What you repeat | nestjs-es-kit |
-|---|---|
-| JSON mapping files disconnected from your TypeScript types | Decorator schema — one source of truth |
-| Bootstrap code to check and create indices | `synchronize: 'create'` |
-| Manual `put_mapping` for new fields | `synchronize: 'sync'` |
-| Figuring out which mapping changes need a full reindex | `diff()` + `BreakingSchemaChangeError` with a clear message |
-| Chunk splitting, retry logic, partial failure parsing for bulk | `bulkIndex()` |
+| What you repeat                                                | nestjs-es-kit                                               |
+| -------------------------------------------------------------- | ----------------------------------------------------------- |
+| JSON mapping files disconnected from your TypeScript types     | Decorator schema — one source of truth                      |
+| Bootstrap code to check and create indices                     | `synchronize: 'create'`                                     |
+| Manual `put_mapping` for new fields                            | `synchronize: 'sync'`                                       |
+| Figuring out which mapping changes need a full reindex         | `diff()` + `BreakingSchemaChangeError` with a clear message |
+| Chunk splitting, retry logic, partial failure parsing for bulk | `bulkIndex()`                                               |
 
 **Competitive landscape (npm, 2026-07)**
 
-| Package | Weekly DL | Status | Scope |
-|---|---|---|---|
-| @nestjs/elasticsearch | ~131,000 | Active | DI wrapper only |
-| @codemask-labs/nestjs-elasticsearch | ~70 | Active | Query type safety |
-| es-mapping-ts | ~3,000 | Abandoned 2020 | Decorator mapping (ES 6/7) |
-| elasticsearch-index-migrate | ~1,000 | Abandoned 2022 | Migration CLI |
-| **nestjs-es-kit** | — | **Active** | **Index lifecycle + Korean nori preset** |
+| Package                             | Weekly DL | Status         | Scope                                    |
+| ----------------------------------- | --------- | -------------- | ---------------------------------------- |
+| @nestjs/elasticsearch               | ~131,000  | Active         | DI wrapper only                          |
+| @codemask-labs/nestjs-elasticsearch | ~70       | Active         | Query type safety                        |
+| es-mapping-ts                       | ~3,000    | Abandoned 2020 | Decorator mapping (ES 6/7)               |
+| elasticsearch-index-migrate         | ~1,000    | Abandoned 2022 | Migration CLI                            |
+| **nestjs-es-kit**                   | —         | **Active**     | **Index lifecycle + Korean nori preset** |
 
 ---
 
@@ -75,7 +75,7 @@ import { EsIndex, EsField, koreanAnalysis } from 'nestjs-es-kit';
 
 @EsIndex({
   name: 'products',
-  useAlias: true,             // creates products-v1 + alias 'products' (default: true)
+  useAlias: true, // creates products-v1 + alias 'products' (default: true)
   settings: {
     numberOfShards: 3,
     numberOfReplicas: 1,
@@ -96,7 +96,7 @@ export class Product {
   @EsField({
     type: 'text',
     analyzer: 'nori_analyzer',
-    fields: { raw: { type: 'keyword' } },  // multi-field
+    fields: { raw: { type: 'keyword' } }, // multi-field
   })
   name: string;
 
@@ -131,7 +131,7 @@ import { ProductModule } from './product/product.module';
           username: config.get('ES_USERNAME'),
           password: config.get('ES_PASSWORD'),
         },
-        synchronize: 'sync',  // 'none' | 'create' | 'sync'
+        synchronize: 'sync', // 'none' | 'create' | 'sync'
       }),
       inject: [ConfigService],
     }),
@@ -189,27 +189,27 @@ export class ProductService {
 
 #### `@EsIndex(options)`
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `name` | `string` | required | Index base name. Physical index: `{name}-v1` when `useAlias: true` |
-| `useAlias` | `boolean` | `true` | Create a physical index `{name}-v{version}` and an alias `{name}` |
-| `version` | `number` | `1` | Current schema version (used for physical index naming) |
-| `settings` | `EsIndexSettings` | — | `numberOfShards`, `numberOfReplicas`, `refreshInterval`, `analysis` |
-| `dynamicTemplates` | `EsDynamicTemplate[]` | — | ES [dynamic templates](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-templates.html) |
+| Option             | Type                  | Default  | Description                                                                                                    |
+| ------------------ | --------------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `name`             | `string`              | required | Index base name. Physical index: `{name}-v1` when `useAlias: true`                                             |
+| `useAlias`         | `boolean`             | `true`   | Create a physical index `{name}-v{version}` and an alias `{name}`                                              |
+| `version`          | `number`              | `1`      | Current schema version (used for physical index naming)                                                        |
+| `settings`         | `EsIndexSettings`     | —        | `numberOfShards`, `numberOfReplicas`, `refreshInterval`, `analysis`                                            |
+| `dynamicTemplates` | `EsDynamicTemplate[]` | —        | ES [dynamic templates](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-templates.html) |
 
 #### `@EsField(options)`
 
-| Option | Type | Description |
-|---|---|---|
-| `type` | `EsFieldType` | `keyword` `text` `integer` `long` `float` `double` `boolean` `date` `object` `nested` `ip` `geo_point` |
-| `analyzer` | `string` | Index-time analyzer |
-| `searchAnalyzer` | `string` | Search-time analyzer (defaults to `analyzer`) |
-| `fields` | `Record<string, EsFieldMapping>` | Multi-fields (e.g., `.raw` keyword sub-field) |
-| `index` | `boolean` | Disable indexing for a field |
-| `docValues` | `boolean` | Disable doc values |
-| `nullValue` | `string \| number \| boolean` | Substitute for `null` during indexing |
-| `format` | `string` | Date format string |
-| `properties` | `() => Class` | Nested/object class reference (lazy to avoid circular imports) |
+| Option           | Type                             | Description                                                                                            |
+| ---------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `type`           | `EsFieldType`                    | `keyword` `text` `integer` `long` `float` `double` `boolean` `date` `object` `nested` `ip` `geo_point` |
+| `analyzer`       | `string`                         | Index-time analyzer                                                                                    |
+| `searchAnalyzer` | `string`                         | Search-time analyzer (defaults to `analyzer`)                                                          |
+| `fields`         | `Record<string, EsFieldMapping>` | Multi-fields (e.g., `.raw` keyword sub-field)                                                          |
+| `index`          | `boolean`                        | Disable indexing for a field                                                                           |
+| `docValues`      | `boolean`                        | Disable doc values                                                                                     |
+| `nullValue`      | `string \| number \| boolean`    | Substitute for `null` during indexing                                                                  |
+| `format`         | `string`                         | Date format string                                                                                     |
+| `properties`     | `() => Class`                    | Nested/object class reference (lazy to avoid circular imports)                                         |
 
 #### `@InjectIndex(SchemaClass)`
 
@@ -225,9 +225,9 @@ DI token for injecting `EsIndexService<T>` in a constructor.
 EsKitModule.forRoot({
   node: 'http://localhost:9200',
   auth: { username: 'elastic', password: '...' },
-  synchronize: 'create',   // default
+  synchronize: 'create', // default
   logger: true,
-})
+});
 ```
 
 All options extend `@elastic/elasticsearch` `ClientOptions` — the ES client receives them directly.
@@ -242,13 +242,13 @@ EsKitModule.forRootAsync({
     synchronize: config.get<string>('ES_SYNC', 'create'),
   }),
   inject: [ConfigService],
-})
+});
 ```
 
 #### `EsKitModule.forFeature(schemas)`
 
 ```ts
-EsKitModule.forFeature([Product, Order])
+EsKitModule.forFeature([Product, Order]);
 ```
 
 Registers `EsIndexService<T>` providers for each schema and triggers synchronization at module init.
@@ -259,11 +259,11 @@ Registers `EsIndexService<T>` providers for each schema and triggers synchroniza
 
 Synchronization runs automatically at application bootstrap for every schema registered via `forFeature`.
 
-| Mode | Behavior |
-|---|---|
-| `'none'` | Does nothing. Manage indices yourself. |
-| `'create'` | Creates the index if it does not exist. No-op if it already exists. **(default)** |
-| `'sync'` | Creates if missing. Adds newly declared fields via `PUT /{index}/_mapping`. Throws `BreakingSchemaChangeError` if a breaking change is detected (type change, analyzer change). |
+| Mode       | Behavior                                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'none'`   | Does nothing. Manage indices yourself.                                                                                                                                          |
+| `'create'` | Creates the index if it does not exist. No-op if it already exists. **(default)**                                                                                               |
+| `'sync'`   | Creates if missing. Adds newly declared fields via `PUT /{index}/_mapping`. Throws `BreakingSchemaChangeError` if a breaking change is detected (type change, analyzer change). |
 
 **When to use each mode**
 
@@ -284,10 +284,14 @@ Inject with `@InjectIndex(SchemaClass)`.
 const id = await this.products.index(doc, { id: doc.id, refresh: 'wait_for' });
 
 // Get by ID
-const doc = await this.products.get('product-1');  // null if not found
+const doc = await this.products.get('product-1'); // null if not found
 
 // Partial update
-await this.products.update('product-1', { price: 9900 }, { refresh: 'wait_for' });
+await this.products.update(
+  'product-1',
+  { price: 9900 },
+  { refresh: 'wait_for' },
+);
 
 // Delete
 await this.products.delete('product-1');
@@ -297,16 +301,16 @@ await this.products.delete('product-1');
 
 ```ts
 const result = await this.products.bulkIndex(docs, {
-  chunkSize: 1000,          // default 1000
-  retries: 3,               // retries 429/503 with exponential backoff
+  chunkSize: 1000, // default 1000
+  retries: 3, // retries 429/503 with exponential backoff
   refresh: false,
   idSelector: (doc) => doc.id,
-  throwOnFailure: false,    // set true to throw BulkPartialFailureError on any failure
+  throwOnFailure: false, // set true to throw BulkPartialFailureError on any failure
 });
 
-result.total;     // total document count
+result.total; // total document count
 result.succeeded; // successfully indexed count
-result.failed;    // BulkFailedItem[] — { doc, error, status }
+result.failed; // BulkFailedItem[] — { doc, error, status }
 ```
 
 #### Search
@@ -320,21 +324,23 @@ const result = await this.products.search({
   from: 0,
 });
 
-result.hits;     // Product[]
-result.total;    // number
-result.rawHits;  // { id, score, source, sort }[]
+result.hits; // Product[]
+result.total; // number
+result.rawHits; // { id, score, source, sort }[]
 
 // search_template
-const result = await this.products.searchTemplate('product-search', { keyword: '노트북' });
+const result = await this.products.searchTemplate('product-search', {
+  keyword: '노트북',
+});
 
 // search_after (cursor pagination)
 const page = await this.products.searchAfter({
   query: { match_all: {} },
   sort: [{ createdAt: 'desc' }, { id: 'asc' }],
   size: 20,
-  after: prevPage.nextCursor,  // omit for first page
+  after: prevPage.nextCursor, // omit for first page
 });
-page.nextCursor;  // pass to the next call
+page.nextCursor; // pass to the next call
 ```
 
 #### Aggregations
@@ -343,20 +349,22 @@ page.nextCursor;  // pass to the next call
 const aggs = await this.products.aggregate(
   {
     byCategory: { terms: { field: 'category', size: 10 } },
-    avgPrice:   { avg: { field: 'price' } },
+    avgPrice: { avg: { field: 'price' } },
   },
-  { query: { range: { price: { gte: 10000 } } } },  // optional pre-filter
+  { query: { range: { price: { gte: 10000 } } } }, // optional pre-filter
 );
 
-const categories = aggs['byCategory'] as { buckets: { key: string; doc_count: number }[] };
-const avgPrice   = aggs['avgPrice'] as { value: number };
+const categories = aggs['byCategory'] as {
+  buckets: { key: string; doc_count: number }[];
+};
+const avgPrice = aggs['avgPrice'] as { value: number };
 ```
 
 #### Raw escape hatch
 
 ```ts
-this.products.raw;        // @elastic/elasticsearch Client — full API access
-this.products.indexName;  // alias name when useAlias: true, physical name otherwise
+this.products.raw; // @elastic/elasticsearch Client — full API access
+this.products.indexName; // alias name when useAlias: true, physical name otherwise
 ```
 
 ---
@@ -380,10 +388,10 @@ await this.indexManager.diff(Product);
 ```ts
 const diff = await this.indexManager.diff(Product);
 
-diff.addedFields;    // string[]     — safe to put_mapping
-diff.changedFields;  // FieldChange[] — type/analyzer changed; ES forbids in-place update → reindex required
-diff.removedFields;  // string[]     — informational (ES never deletes fields)
-diff.isBreaking;     // boolean
+diff.addedFields; // string[]     — safe to put_mapping
+diff.changedFields; // FieldChange[] — type/analyzer changed; ES forbids in-place update → reindex required
+diff.removedFields; // string[]     — informational (ES never deletes fields)
+diff.isBreaking; // boolean
 ```
 
 ---
@@ -406,9 +414,9 @@ import { koreanAnalysis } from 'nestjs-es-kit';
   name: 'articles',
   settings: {
     analysis: koreanAnalysis({
-      decompound: 'mixed',          // 'none' | 'discard' | 'mixed' (default)
-      stoptags: ['J', 'E', 'SP'],   // POS tags to filter (default: standard Korean stop tags)
-      synonyms: ['노트북, 랩탑'],    // optional synonym list
+      decompound: 'mixed', // 'none' | 'discard' | 'mixed' (default)
+      stoptags: ['J', 'E', 'SP'], // POS tags to filter (default: standard Korean stop tags)
+      synonyms: ['노트북, 랩탑'], // optional synonym list
     }),
   },
 })
@@ -440,11 +448,14 @@ Until then, use `EsIndexManager` directly in a one-off script:
 ```ts
 // migration script (pseudocode until v0.2)
 await manager.create(ProductV2);
-await client.reindex({ source: { index: 'products-v1' }, dest: { index: 'products-v2' } });
+await client.reindex({
+  source: { index: 'products-v1' },
+  dest: { index: 'products-v2' },
+});
 await client.indices.updateAliases({
   actions: [
     { remove: { index: 'products-v1', alias: 'products' } },
-    { add:    { index: 'products-v2', alias: 'products' } },
+    { add: { index: 'products-v2', alias: 'products' } },
   ],
 });
 ```
@@ -455,12 +466,12 @@ await client.indices.updateAliases({
 
 ```ts
 import {
-  EsKitError,              // base class — all errors extend this
-  IndexNotFoundError,      // index doesn't exist (synchronize: 'none')
+  EsKitError, // base class — all errors extend this
+  IndexNotFoundError, // index doesn't exist (synchronize: 'none')
   IndexAlreadyExistsError,
   BreakingSchemaChangeError, // diff.isBreaking — message includes changed field list
-  BulkPartialFailureError,   // opt-in: bulkIndex({ throwOnFailure: true })
-  SchemaMetadataError,       // decorator misconfiguration (e.g., zero @EsField)
+  BulkPartialFailureError, // opt-in: bulkIndex({ throwOnFailure: true })
+  SchemaMetadataError, // decorator misconfiguration (e.g., zero @EsField)
   UnsupportedEsVersionError, // connected to ES < 8
 } from 'nestjs-es-kit';
 ```
@@ -471,12 +482,12 @@ All errors preserve the original ES error as `cause`.
 
 ## Roadmap
 
-| Version | Scope |
-|---|---|
+| Version  | Scope                                                                                                          |
+| -------- | -------------------------------------------------------------------------------------------------------------- |
 | **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy |
-| **v0.2** | `migrate()` — zero-downtime alias-swap reindex, `npx es-kit migrate` CLI |
-| **v0.3** | Expanded search type safety, scroll/PIT helpers |
-| **v0.4** | Per-aggregation response type inference, nori user dictionary support |
+| **v0.2** | `migrate()` — zero-downtime alias-swap reindex, `npx es-kit migrate` CLI                                       |
+| **v0.3** | Expanded search type safety, scroll/PIT helpers                                                                |
+| **v0.4** | Per-aggregation response type inference, nori user dictionary support                                          |
 
 ---
 

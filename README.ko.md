@@ -16,7 +16,7 @@ class Product {
 }
 ```
 
-> 영문 문서: [README.md](./README.md)
+> 영문 문서: [README.md](https://github.com/smw0807/nestjs-es-kit/blob/main/README.md)
 
 ---
 
@@ -24,23 +24,23 @@ class Product {
 
 공식 `@nestjs/elasticsearch`(주간 약 13만 다운로드)는 ES 클라이언트를 DI로 주입해주는 래퍼에 불과합니다. 결국 모든 팀이 프로젝트마다 같은 보일러플레이트를 반복 작성하게 됩니다.
 
-| 매번 반복하는 작업 | nestjs-es-kit |
-|---|---|
-| 타입과 따로 노는 JSON 매핑 파일 관리 | 데코레이터 스키마 — 단일 소스 오브 트루스 |
-| 인덱스 존재 여부 확인 후 생성하는 부트스트랩 코드 | `synchronize: 'create'` |
-| 새 필드 추가 시 수동 `put_mapping` | `synchronize: 'sync'` |
-| 어떤 매핑 변경이 reindex를 필요로 하는지 파악 | `diff()` + `BreakingSchemaChangeError` (변경 필드 목록 포함) |
-| bulk 청크 분할, 재시도, 부분 실패 파싱 | `bulkIndex()` |
+| 매번 반복하는 작업                                | nestjs-es-kit                                                |
+| ------------------------------------------------- | ------------------------------------------------------------ |
+| 타입과 따로 노는 JSON 매핑 파일 관리              | 데코레이터 스키마 — 단일 소스 오브 트루스                    |
+| 인덱스 존재 여부 확인 후 생성하는 부트스트랩 코드 | `synchronize: 'create'`                                      |
+| 새 필드 추가 시 수동 `put_mapping`                | `synchronize: 'sync'`                                        |
+| 어떤 매핑 변경이 reindex를 필요로 하는지 파악     | `diff()` + `BreakingSchemaChangeError` (변경 필드 목록 포함) |
+| bulk 청크 분할, 재시도, 부분 실패 파싱            | `bulkIndex()`                                                |
 
 **경쟁 현황 (npm, 2026-07)**
 
-| 패키지 | 주간 DL | 상태 | 영역 |
-|---|---|---|---|
-| @nestjs/elasticsearch | ~131,000 | 활성 | DI 래퍼만 제공 |
-| @codemask-labs/nestjs-elasticsearch | ~70 | 활성 | 쿼리 타입 안정성 |
-| es-mapping-ts | ~3,000 | 2020년 방치 | 데코레이터 매핑 (ES 6/7) |
-| elasticsearch-index-migrate | ~1,000 | 2022년 방치 | 마이그레이션 CLI |
-| **nestjs-es-kit** | — | **활성** | **인덱스 라이프사이클 + 한국어 nori 프리셋** |
+| 패키지                              | 주간 DL  | 상태        | 영역                                         |
+| ----------------------------------- | -------- | ----------- | -------------------------------------------- |
+| @nestjs/elasticsearch               | ~131,000 | 활성        | DI 래퍼만 제공                               |
+| @codemask-labs/nestjs-elasticsearch | ~70      | 활성        | 쿼리 타입 안정성                             |
+| es-mapping-ts                       | ~3,000   | 2020년 방치 | 데코레이터 매핑 (ES 6/7)                     |
+| elasticsearch-index-migrate         | ~1,000   | 2022년 방치 | 마이그레이션 CLI                             |
+| **nestjs-es-kit**                   | —        | **활성**    | **인덱스 라이프사이클 + 한국어 nori 프리셋** |
 
 ---
 
@@ -75,7 +75,7 @@ import { EsIndex, EsField, koreanAnalysis } from 'nestjs-es-kit';
 
 @EsIndex({
   name: 'products',
-  useAlias: true,             // products-v1 인덱스 + 'products' alias 생성 (기본값: true)
+  useAlias: true, // products-v1 인덱스 + 'products' alias 생성 (기본값: true)
   settings: {
     numberOfShards: 3,
     numberOfReplicas: 1,
@@ -96,7 +96,7 @@ export class Product {
   @EsField({
     type: 'text',
     analyzer: 'nori_analyzer',
-    fields: { raw: { type: 'keyword' } },  // multi-field
+    fields: { raw: { type: 'keyword' } }, // multi-field
   })
   name: string;
 
@@ -131,7 +131,7 @@ import { ProductModule } from './product/product.module';
           username: config.get('ES_USERNAME'),
           password: config.get('ES_PASSWORD'),
         },
-        synchronize: 'sync',  // 'none' | 'create' | 'sync'
+        synchronize: 'sync', // 'none' | 'create' | 'sync'
       }),
       inject: [ConfigService],
     }),
@@ -189,27 +189,27 @@ export class ProductService {
 
 #### `@EsIndex(options)`
 
-| 옵션 | 타입 | 기본값 | 설명 |
-|---|---|---|---|
-| `name` | `string` | 필수 | 인덱스 기본명. `useAlias: true`이면 물리 인덱스명은 `{name}-v1` |
-| `useAlias` | `boolean` | `true` | 물리 인덱스 `{name}-v{version}` + alias `{name}` 생성 |
-| `version` | `number` | `1` | 현재 스키마 버전 (물리 인덱스명 생성에 사용) |
-| `settings` | `EsIndexSettings` | — | `numberOfShards`, `numberOfReplicas`, `refreshInterval`, `analysis` |
-| `dynamicTemplates` | `EsDynamicTemplate[]` | — | ES [dynamic templates](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-templates.html) |
+| 옵션               | 타입                  | 기본값 | 설명                                                                                                           |
+| ------------------ | --------------------- | ------ | -------------------------------------------------------------------------------------------------------------- |
+| `name`             | `string`              | 필수   | 인덱스 기본명. `useAlias: true`이면 물리 인덱스명은 `{name}-v1`                                                |
+| `useAlias`         | `boolean`             | `true` | 물리 인덱스 `{name}-v{version}` + alias `{name}` 생성                                                          |
+| `version`          | `number`              | `1`    | 현재 스키마 버전 (물리 인덱스명 생성에 사용)                                                                   |
+| `settings`         | `EsIndexSettings`     | —      | `numberOfShards`, `numberOfReplicas`, `refreshInterval`, `analysis`                                            |
+| `dynamicTemplates` | `EsDynamicTemplate[]` | —      | ES [dynamic templates](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-templates.html) |
 
 #### `@EsField(options)`
 
-| 옵션 | 타입 | 설명 |
-|---|---|---|
-| `type` | `EsFieldType` | `keyword` `text` `integer` `long` `float` `double` `boolean` `date` `object` `nested` `ip` `geo_point` |
-| `analyzer` | `string` | 색인 시점 분석기 |
-| `searchAnalyzer` | `string` | 검색 시점 분석기 (기본값: `analyzer`와 동일) |
-| `fields` | `Record<string, EsFieldMapping>` | multi-field (예: `.raw` keyword 서브필드) |
-| `index` | `boolean` | 해당 필드 색인 비활성화 |
-| `docValues` | `boolean` | doc values 비활성화 |
-| `nullValue` | `string \| number \| boolean` | `null` 색인 시 대체값 |
-| `format` | `string` | date 포맷 문자열 |
-| `properties` | `() => Class` | 중첩 object/nested 클래스 참조 (순환 참조 방지를 위해 지연 평가) |
+| 옵션             | 타입                             | 설명                                                                                                   |
+| ---------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `type`           | `EsFieldType`                    | `keyword` `text` `integer` `long` `float` `double` `boolean` `date` `object` `nested` `ip` `geo_point` |
+| `analyzer`       | `string`                         | 색인 시점 분석기                                                                                       |
+| `searchAnalyzer` | `string`                         | 검색 시점 분석기 (기본값: `analyzer`와 동일)                                                           |
+| `fields`         | `Record<string, EsFieldMapping>` | multi-field (예: `.raw` keyword 서브필드)                                                              |
+| `index`          | `boolean`                        | 해당 필드 색인 비활성화                                                                                |
+| `docValues`      | `boolean`                        | doc values 비활성화                                                                                    |
+| `nullValue`      | `string \| number \| boolean`    | `null` 색인 시 대체값                                                                                  |
+| `format`         | `string`                         | date 포맷 문자열                                                                                       |
+| `properties`     | `() => Class`                    | 중첩 object/nested 클래스 참조 (순환 참조 방지를 위해 지연 평가)                                       |
 
 #### `@InjectIndex(SchemaClass)`
 
@@ -225,9 +225,9 @@ export class ProductService {
 EsKitModule.forRoot({
   node: 'http://localhost:9200',
   auth: { username: 'elastic', password: '...' },
-  synchronize: 'create',   // 기본값
+  synchronize: 'create', // 기본값
   logger: true,
-})
+});
 ```
 
 모든 옵션은 `@elastic/elasticsearch`의 `ClientOptions`를 확장합니다 — ES 클라이언트로 그대로 전달됩니다.
@@ -242,13 +242,13 @@ EsKitModule.forRootAsync({
     synchronize: config.get<string>('ES_SYNC', 'create'),
   }),
   inject: [ConfigService],
-})
+});
 ```
 
 #### `EsKitModule.forFeature(schemas)`
 
 ```ts
-EsKitModule.forFeature([Product, Order])
+EsKitModule.forFeature([Product, Order]);
 ```
 
 각 스키마에 대한 `EsIndexService<T>` 프로바이더를 등록하고, 모듈 초기화 시 동기화를 실행합니다.
@@ -259,11 +259,11 @@ EsKitModule.forFeature([Product, Order])
 
 `forFeature`로 등록된 모든 스키마에 대해 애플리케이션 부트스트랩 시 자동으로 동기화가 실행됩니다.
 
-| 모드 | 동작 |
-|---|---|
-| `'none'` | 아무것도 하지 않습니다. 인덱스를 직접 관리합니다. |
-| `'create'` | 인덱스가 없으면 생성합니다. 이미 있으면 아무것도 하지 않습니다. **(기본값)** |
-| `'sync'` | 없으면 생성합니다. 새로 선언된 필드를 `PUT /{index}/_mapping`으로 추가합니다. 파괴적 변경(타입·분석기 변경)이 감지되면 `BreakingSchemaChangeError`를 던집니다. |
+| 모드       | 동작                                                                                                                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'none'`   | 아무것도 하지 않습니다. 인덱스를 직접 관리합니다.                                                                                                              |
+| `'create'` | 인덱스가 없으면 생성합니다. 이미 있으면 아무것도 하지 않습니다. **(기본값)**                                                                                   |
+| `'sync'`   | 없으면 생성합니다. 새로 선언된 필드를 `PUT /{index}/_mapping`으로 추가합니다. 파괴적 변경(타입·분석기 변경)이 감지되면 `BreakingSchemaChangeError`를 던집니다. |
 
 **환경별 권장 모드**
 
@@ -284,10 +284,14 @@ EsKitModule.forFeature([Product, Order])
 const id = await this.products.index(doc, { id: doc.id, refresh: 'wait_for' });
 
 // ID로 조회
-const doc = await this.products.get('product-1');  // 없으면 null 반환
+const doc = await this.products.get('product-1'); // 없으면 null 반환
 
 // 부분 업데이트
-await this.products.update('product-1', { price: 9900 }, { refresh: 'wait_for' });
+await this.products.update(
+  'product-1',
+  { price: 9900 },
+  { refresh: 'wait_for' },
+);
 
 // 삭제
 await this.products.delete('product-1');
@@ -297,16 +301,16 @@ await this.products.delete('product-1');
 
 ```ts
 const result = await this.products.bulkIndex(docs, {
-  chunkSize: 1000,          // 기본값 1000
-  retries: 3,               // 429/503 에러 지수 백오프 재시도
+  chunkSize: 1000, // 기본값 1000
+  retries: 3, // 429/503 에러 지수 백오프 재시도
   refresh: false,
   idSelector: (doc) => doc.id,
-  throwOnFailure: false,    // true로 설정하면 실패 시 BulkPartialFailureError 발생
+  throwOnFailure: false, // true로 설정하면 실패 시 BulkPartialFailureError 발생
 });
 
-result.total;     // 전체 문서 수
+result.total; // 전체 문서 수
 result.succeeded; // 성공 건수
-result.failed;    // BulkFailedItem[] — { doc, error, status }
+result.failed; // BulkFailedItem[] — { doc, error, status }
 ```
 
 #### 검색
@@ -320,21 +324,23 @@ const result = await this.products.search({
   from: 0,
 });
 
-result.hits;     // Product[]
-result.total;    // number
-result.rawHits;  // { id, score, source, sort }[]
+result.hits; // Product[]
+result.total; // number
+result.rawHits; // { id, score, source, sort }[]
 
 // search_template
-const result = await this.products.searchTemplate('product-search', { keyword: '노트북' });
+const result = await this.products.searchTemplate('product-search', {
+  keyword: '노트북',
+});
 
 // search_after (커서 페이지네이션)
 const page = await this.products.searchAfter({
   query: { match_all: {} },
   sort: [{ createdAt: 'desc' }, { id: 'asc' }],
   size: 20,
-  after: prevPage.nextCursor,  // 첫 페이지는 생략
+  after: prevPage.nextCursor, // 첫 페이지는 생략
 });
-page.nextCursor;  // 다음 페이지 요청 시 전달
+page.nextCursor; // 다음 페이지 요청 시 전달
 ```
 
 #### 집계 (Aggregation)
@@ -343,20 +349,22 @@ page.nextCursor;  // 다음 페이지 요청 시 전달
 const aggs = await this.products.aggregate(
   {
     byCategory: { terms: { field: 'category', size: 10 } },
-    avgPrice:   { avg: { field: 'price' } },
+    avgPrice: { avg: { field: 'price' } },
   },
-  { query: { range: { price: { gte: 10000 } } } },  // 선택: 사전 필터 쿼리
+  { query: { range: { price: { gte: 10000 } } } }, // 선택: 사전 필터 쿼리
 );
 
-const categories = aggs['byCategory'] as { buckets: { key: string; doc_count: number }[] };
-const avgPrice   = aggs['avgPrice'] as { value: number };
+const categories = aggs['byCategory'] as {
+  buckets: { key: string; doc_count: number }[];
+};
+const avgPrice = aggs['avgPrice'] as { value: number };
 ```
 
 #### Raw 탈출구
 
 ```ts
-this.products.raw;        // @elastic/elasticsearch Client — ES 전체 API 직접 접근
-this.products.indexName;  // useAlias: true이면 alias명, 아니면 물리 인덱스명
+this.products.raw; // @elastic/elasticsearch Client — ES 전체 API 직접 접근
+this.products.indexName; // useAlias: true이면 alias명, 아니면 물리 인덱스명
 ```
 
 ---
@@ -380,10 +388,10 @@ await this.indexManager.diff(Product);
 ```ts
 const diff = await this.indexManager.diff(Product);
 
-diff.addedFields;    // string[]      — put_mapping으로 추가 가능
-diff.changedFields;  // FieldChange[] — 타입/분석기 변경 → ES에서 직접 수정 불가, reindex 필요
-diff.removedFields;  // string[]      — 정보 제공용 (ES는 필드를 삭제하지 않음)
-diff.isBreaking;     // boolean
+diff.addedFields; // string[]      — put_mapping으로 추가 가능
+diff.changedFields; // FieldChange[] — 타입/분석기 변경 → ES에서 직접 수정 불가, reindex 필요
+diff.removedFields; // string[]      — 정보 제공용 (ES는 필드를 삭제하지 않음)
+diff.isBreaking; // boolean
 ```
 
 ---
@@ -408,9 +416,9 @@ import { koreanAnalysis } from 'nestjs-es-kit';
   name: 'articles',
   settings: {
     analysis: koreanAnalysis({
-      decompound: 'mixed',          // 'none' | 'discard' | 'mixed' (기본값)
-      stoptags: ['J', 'E', 'SP'],   // 제거할 품사 태그 (기본값: 표준 조사·어미 세트)
-      synonyms: ['노트북, 랩탑'],    // 동의어 목록 (선택)
+      decompound: 'mixed', // 'none' | 'discard' | 'mixed' (기본값)
+      stoptags: ['J', 'E', 'SP'], // 제거할 품사 태그 (기본값: 표준 조사·어미 세트)
+      synonyms: ['노트북, 랩탑'], // 동의어 목록 (선택)
     }),
   },
 })
@@ -442,11 +450,14 @@ v0.2 이전까지는 `EsIndexManager`로 직접 처리할 수 있습니다.
 ```ts
 // 마이그레이션 스크립트 (v0.2 전까지의 임시 방법)
 await manager.create(ProductV2);
-await client.reindex({ source: { index: 'products-v1' }, dest: { index: 'products-v2' } });
+await client.reindex({
+  source: { index: 'products-v1' },
+  dest: { index: 'products-v2' },
+});
 await client.indices.updateAliases({
   actions: [
     { remove: { index: 'products-v1', alias: 'products' } },
-    { add:    { index: 'products-v2', alias: 'products' } },
+    { add: { index: 'products-v2', alias: 'products' } },
   ],
 });
 ```
@@ -457,12 +468,12 @@ await client.indices.updateAliases({
 
 ```ts
 import {
-  EsKitError,                // 베이스 클래스 — 모든 에러가 상속
-  IndexNotFoundError,        // 인덱스 없음 (synchronize: 'none' 상태)
+  EsKitError, // 베이스 클래스 — 모든 에러가 상속
+  IndexNotFoundError, // 인덱스 없음 (synchronize: 'none' 상태)
   IndexAlreadyExistsError,
   BreakingSchemaChangeError, // diff.isBreaking — 메시지에 변경 필드 목록 포함
-  BulkPartialFailureError,   // opt-in: bulkIndex({ throwOnFailure: true })
-  SchemaMetadataError,       // 데코레이터 선언 오류 (예: @EsField가 0개)
+  BulkPartialFailureError, // opt-in: bulkIndex({ throwOnFailure: true })
+  SchemaMetadataError, // 데코레이터 선언 오류 (예: @EsField가 0개)
   UnsupportedEsVersionError, // ES 8 미만 버전에 연결된 경우
 } from 'nestjs-es-kit';
 ```
@@ -473,12 +484,12 @@ import {
 
 ## 로드맵
 
-| 버전 | 범위 |
-|---|---|
+| 버전     | 범위                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------- |
 | **v0.1** | 데코레이터 스키마, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori 프리셋, 에러 체계 |
-| **v0.2** | `migrate()` — alias 스왑 기반 무중단 reindex, `npx es-kit migrate` CLI |
-| **v0.3** | search 타입 강화, scroll/PIT 헬퍼 |
-| **v0.4** | 집계 종류별 응답 타입 추론, nori 사용자 사전 지원 |
+| **v0.2** | `migrate()` — alias 스왑 기반 무중단 reindex, `npx es-kit migrate` CLI                                    |
+| **v0.3** | search 타입 강화, scroll/PIT 헬퍼                                                                         |
+| **v0.4** | 집계 종류별 응답 타입 추론, nori 사용자 사전 지원                                                         |
 
 ---
 
