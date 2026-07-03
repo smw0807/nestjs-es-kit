@@ -27,7 +27,7 @@ const startContainer = async (base: GenericContainer): Promise<EsTestContext> =>
     .withWaitStrategy(ES_WAIT)
     .start();
 
-  const esNode = `http://${container.getHost()}:${container.getMappedPort(9200)}`;
+  const esNode = `http://${container.getHost()}:${String(container.getMappedPort(9200))}`;
   const client = new Client({ node: esNode });
 
   return { container, client, esNode };

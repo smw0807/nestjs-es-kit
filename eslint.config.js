@@ -18,6 +18,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist', 'coverage', 'node_modules', 'eslint.config.js'],
+    ignores: ['dist', 'coverage', 'node_modules', 'eslint.config.js', 'examples'],
   },
 );

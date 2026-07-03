@@ -1,61 +1,483 @@
 # nestjs-es-kit
 
-Decorator-driven Elasticsearch index lifecycle management for NestJS.
+> Decorator-driven Elasticsearch index lifecycle management for NestJS
 
-## Status
+[![npm version](https://badge.fury.io/js/nestjs-es-kit.svg)](https://badge.fury.io/js/nestjs-es-kit)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This repository is in the initial project setup stage. The current scaffold includes:
+Declare your Elasticsearch schema once as a decorated TypeScript class — `nestjs-es-kit` handles index creation, mapping synchronization, and breaking-change detection automatically at application bootstrap.
 
-- TypeScript strict library setup
-- `tsup` ESM/CJS build output
-- Vitest unit test setup
-- Changesets and GitHub Actions CI
-- Decorator metadata collection with `@EsIndex` and `@EsField`
-- Schema builder for Elasticsearch settings/mappings
-- NestJS `EsKitModule.forRoot`, `forRootAsync`, and `forFeature`
-- `EsIndexManager` for create, diff, and syncMapping
-- `EsIndexService` for CRUD, bulk index, search, search template, search after, aggregate, and raw client access
-- Korean nori analysis preset
+```ts
+@EsIndex({ name: 'products', settings: { analysis: koreanAnalysis() } })
+class Product {
+  @EsField({ type: 'keyword' }) id: string;
+  @EsField({ type: 'text', analyzer: 'nori_analyzer' }) name: string;
+  @EsField({ type: 'integer' }) price: number;
+}
+```
+
+---
+
+## Why nestjs-es-kit?
+
+The official `@nestjs/elasticsearch` (~131k weekly downloads) wraps the ES client for DI — nothing more. Every team ends up writing the same boilerplate across projects:
+
+| What you repeat | nestjs-es-kit |
+|---|---|
+| JSON mapping files disconnected from your TypeScript types | Decorator schema — one source of truth |
+| Bootstrap code to check and create indices | `synchronize: 'create'` |
+| Manual `put_mapping` for new fields | `synchronize: 'sync'` |
+| Figuring out which mapping changes need a full reindex | `diff()` + `BreakingSchemaChangeError` with a clear message |
+| Chunk splitting, retry logic, partial failure parsing for bulk | `bulkIndex()` |
+
+**Competitive landscape (npm, 2026-07)**
+
+| Package | Weekly DL | Status | Scope |
+|---|---|---|---|
+| @nestjs/elasticsearch | ~131,000 | Active | DI wrapper only |
+| @codemask-labs/nestjs-elasticsearch | ~70 | Active | Query type safety |
+| es-mapping-ts | ~3,000 | Abandoned 2020 | Decorator mapping (ES 6/7) |
+| elasticsearch-index-migrate | ~1,000 | Abandoned 2022 | Migration CLI |
+| **nestjs-es-kit** | — | **Active** | **Index lifecycle + Korean nori preset** |
+
+---
+
+## Installation
+
+```bash
+npm install nestjs-es-kit
+# peer dependencies
+npm install @elastic/elasticsearch @nestjs/common @nestjs/core reflect-metadata
+```
+
+Enable decorator metadata in `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  }
+}
+```
+
+---
 
 ## Quick Start
 
+### 1. Declare a schema
+
 ```ts
-import { EsField, EsIndex, EsKitModule, InjectIndex, koreanAnalysis, EsIndexService } from 'nestjs-es-kit';
+// product.schema.ts
+import { EsIndex, EsField, koreanAnalysis } from 'nestjs-es-kit';
 
 @EsIndex({
   name: 'products',
+  useAlias: true,             // creates products-v1 + alias 'products' (default: true)
   settings: {
+    numberOfShards: 3,
+    numberOfReplicas: 1,
     analysis: koreanAnalysis(),
   },
+  dynamicTemplates: [
+    {
+      name: 'strings_as_keyword',
+      matchMappingType: 'string',
+      mapping: { type: 'keyword' },
+    },
+  ],
 })
-class Product {
+export class Product {
   @EsField({ type: 'keyword' })
-  id!: string;
+  id: string;
 
-  @EsField({ type: 'text', analyzer: 'nori_analyzer' })
-  name!: string;
+  @EsField({
+    type: 'text',
+    analyzer: 'nori_analyzer',
+    fields: { raw: { type: 'keyword' } },  // multi-field
+  })
+  name: string;
+
+  @EsField({ type: 'integer' })
+  price: number;
+
+  @EsField({ type: 'date' })
+  createdAt: Date;
+
+  @EsField({ type: 'object', properties: () => Seller })
+  seller?: Seller;
 }
+```
+
+### 2. Register the module
+
+```ts
+// app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EsKitModule } from 'nestjs-es-kit';
+import { ProductModule } from './product/product.module';
 
 @Module({
   imports: [
-    EsKitModule.forRoot({
-      node: 'http://localhost:9200',
-      synchronize: 'create',
+    ConfigModule.forRoot(),
+    EsKitModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        node: config.get('ES_NODE'),
+        auth: {
+          username: config.get('ES_USERNAME'),
+          password: config.get('ES_PASSWORD'),
+        },
+        synchronize: 'sync',  // 'none' | 'create' | 'sync'
+      }),
+      inject: [ConfigService],
     }),
-    EsKitModule.forFeature([Product]),
+    ProductModule,
   ],
 })
-class AppModule {}
+export class AppModule {}
 
-class ProductService {
-  constructor(@InjectIndex(Product) private readonly products: EsIndexService<Product>) {}
+// product.module.ts
+@Module({
+  imports: [EsKitModule.forFeature([Product])],
+  providers: [ProductService],
+  exports: [ProductService],
+})
+export class ProductModule {}
+```
+
+### 3. Use in your service
+
+```ts
+// product.service.ts
+import { Injectable } from '@nestjs/common';
+import { InjectIndex, EsIndexService } from 'nestjs-es-kit';
+import { Product } from './product.schema';
+
+@Injectable()
+export class ProductService {
+  constructor(
+    @InjectIndex(Product) private readonly products: EsIndexService<Product>,
+  ) {}
+
+  async create(dto: CreateProductDto) {
+    return this.products.index(dto, { id: dto.id, refresh: 'wait_for' });
+  }
+
+  async findById(id: string) {
+    return this.products.get(id);
+  }
+
+  async search(keyword: string) {
+    return this.products.search({
+      query: { match: { name: keyword } },
+      sort: [{ createdAt: 'desc' }],
+      size: 20,
+    });
+  }
 }
 ```
 
-## Korean Analysis
+---
 
-`koreanAnalysis()` uses Elasticsearch's `analysis-nori` plugin. Install it on each Elasticsearch node before using the preset:
+## API Reference
+
+### Decorators
+
+#### `@EsIndex(options)`
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `name` | `string` | required | Index base name. Physical index: `{name}-v1` when `useAlias: true` |
+| `useAlias` | `boolean` | `true` | Create a physical index `{name}-v{version}` and an alias `{name}` |
+| `version` | `number` | `1` | Current schema version (used for physical index naming) |
+| `settings` | `EsIndexSettings` | — | `numberOfShards`, `numberOfReplicas`, `refreshInterval`, `analysis` |
+| `dynamicTemplates` | `EsDynamicTemplate[]` | — | ES [dynamic templates](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-templates.html) |
+
+#### `@EsField(options)`
+
+| Option | Type | Description |
+|---|---|---|
+| `type` | `EsFieldType` | `keyword` `text` `integer` `long` `float` `double` `boolean` `date` `object` `nested` `ip` `geo_point` |
+| `analyzer` | `string` | Index-time analyzer |
+| `searchAnalyzer` | `string` | Search-time analyzer (defaults to `analyzer`) |
+| `fields` | `Record<string, EsFieldMapping>` | Multi-fields (e.g., `.raw` keyword sub-field) |
+| `index` | `boolean` | Disable indexing for a field |
+| `docValues` | `boolean` | Disable doc values |
+| `nullValue` | `string \| number \| boolean` | Substitute for `null` during indexing |
+| `format` | `string` | Date format string |
+| `properties` | `() => Class` | Nested/object class reference (lazy to avoid circular imports) |
+
+#### `@InjectIndex(SchemaClass)`
+
+DI token for injecting `EsIndexService<T>` in a constructor.
+
+---
+
+### Module
+
+#### `EsKitModule.forRoot(options)`
+
+```ts
+EsKitModule.forRoot({
+  node: 'http://localhost:9200',
+  auth: { username: 'elastic', password: '...' },
+  synchronize: 'create',   // default
+  logger: true,
+})
+```
+
+All options extend `@elastic/elasticsearch` `ClientOptions` — the ES client receives them directly.
+
+#### `EsKitModule.forRootAsync(options)`
+
+```ts
+EsKitModule.forRootAsync({
+  imports: [ConfigModule],
+  useFactory: (config: ConfigService) => ({
+    node: config.get('ES_NODE'),
+    synchronize: config.get<string>('ES_SYNC', 'create'),
+  }),
+  inject: [ConfigService],
+})
+```
+
+#### `EsKitModule.forFeature(schemas)`
+
+```ts
+EsKitModule.forFeature([Product, Order])
+```
+
+Registers `EsIndexService<T>` providers for each schema and triggers synchronization at module init.
+
+---
+
+### `synchronize` Modes
+
+Synchronization runs automatically at application bootstrap for every schema registered via `forFeature`.
+
+| Mode | Behavior |
+|---|---|
+| `'none'` | Does nothing. Manage indices yourself. |
+| `'create'` | Creates the index if it does not exist. No-op if it already exists. **(default)** |
+| `'sync'` | Creates if missing. Adds newly declared fields via `PUT /{index}/_mapping`. Throws `BreakingSchemaChangeError` if a breaking change is detected (type change, analyzer change). |
+
+**When to use each mode**
+
+- **Development**: `'sync'` — automatically picks up new fields.
+- **Production (stable schema)**: `'create'` — safe, no surprise mutations.
+- **Production (controlled migration)**: `'none'` + `EsIndexManager` in your deployment script.
+
+---
+
+### `EsIndexService<T>`
+
+Inject with `@InjectIndex(SchemaClass)`.
+
+#### Document operations
+
+```ts
+// Index (create or replace)
+const id = await this.products.index(doc, { id: doc.id, refresh: 'wait_for' });
+
+// Get by ID
+const doc = await this.products.get('product-1');  // null if not found
+
+// Partial update
+await this.products.update('product-1', { price: 9900 }, { refresh: 'wait_for' });
+
+// Delete
+await this.products.delete('product-1');
+```
+
+#### Bulk index
+
+```ts
+const result = await this.products.bulkIndex(docs, {
+  chunkSize: 1000,          // default 1000
+  retries: 3,               // retries 429/503 with exponential backoff
+  refresh: false,
+  idSelector: (doc) => doc.id,
+  throwOnFailure: false,    // set true to throw BulkPartialFailureError on any failure
+});
+
+result.total;     // total document count
+result.succeeded; // successfully indexed count
+result.failed;    // BulkFailedItem[] — { doc, error, status }
+```
+
+#### Search
+
+```ts
+// Basic search — _source is typed as T[]
+const result = await this.products.search({
+  query: { match: { name: '노트북' } },
+  sort: [{ createdAt: 'desc' }],
+  size: 20,
+  from: 0,
+});
+
+result.hits;     // Product[]
+result.total;    // number
+result.rawHits;  // { id, score, source, sort }[]
+
+// search_template
+const result = await this.products.searchTemplate('product-search', { keyword: '노트북' });
+
+// search_after (cursor pagination)
+const page = await this.products.searchAfter({
+  query: { match_all: {} },
+  sort: [{ createdAt: 'desc' }, { id: 'asc' }],
+  size: 20,
+  after: prevPage.nextCursor,  // omit for first page
+});
+page.nextCursor;  // pass to the next call
+```
+
+#### Aggregations
+
+```ts
+const aggs = await this.products.aggregate(
+  {
+    byCategory: { terms: { field: 'category', size: 10 } },
+    avgPrice:   { avg: { field: 'price' } },
+  },
+  { query: { range: { price: { gte: 10000 } } } },  // optional pre-filter
+);
+
+const categories = aggs['byCategory'] as { buckets: { key: string; doc_count: number }[] };
+const avgPrice   = aggs['avgPrice'] as { value: number };
+```
+
+#### Raw escape hatch
+
+```ts
+this.products.raw;        // @elastic/elasticsearch Client — full API access
+this.products.indexName;  // alias name when useAlias: true, physical name otherwise
+```
+
+---
+
+### `EsIndexManager`
+
+Injected as-is — no `@InjectIndex` needed.
+
+```ts
+constructor(private readonly indexManager: EsIndexManager) {}
+
+await this.indexManager.exists(Product);
+await this.indexManager.create(Product);
+await this.indexManager.delete(Product, { force: true });  // force required
+await this.indexManager.syncMapping(Product);
+await this.indexManager.diff(Product);
+```
+
+#### `SchemaDiff`
+
+```ts
+const diff = await this.indexManager.diff(Product);
+
+diff.addedFields;    // string[]     — safe to put_mapping
+diff.changedFields;  // FieldChange[] — type/analyzer changed; ES forbids in-place update → reindex required
+diff.removedFields;  // string[]     — informational (ES never deletes fields)
+diff.isBreaking;     // boolean
+```
+
+---
+
+### Korean Analysis — `koreanAnalysis()`
+
+Requires the [`analysis-nori`](https://www.elastic.co/guide/en/elasticsearch/plugins/current/analysis-nori.html) plugin:
 
 ```sh
 bin/elasticsearch-plugin install analysis-nori
+# Docker: add to a custom Dockerfile
+# FROM docker.elastic.co/elasticsearch/elasticsearch:8.18.2
+# RUN elasticsearch-plugin install --batch analysis-nori
 ```
+
+```ts
+import { koreanAnalysis } from 'nestjs-es-kit';
+
+@EsIndex({
+  name: 'articles',
+  settings: {
+    analysis: koreanAnalysis({
+      decompound: 'mixed',          // 'none' | 'discard' | 'mixed' (default)
+      stoptags: ['J', 'E', 'SP'],   // POS tags to filter (default: standard Korean stop tags)
+      synonyms: ['노트북, 랩탑'],    // optional synonym list
+    }),
+  },
+})
+class Article {
+  @EsField({ type: 'text', analyzer: 'nori_analyzer' })
+  title: string;
+}
+```
+
+`koreanAnalysis()` generates: `nori_tokenizer` + `nori_part_of_speech` filter + `lowercase` filter — wired into a `nori_analyzer` you can reference from any `@EsField`.
+
+---
+
+### Why Can't You Change Field Types?
+
+Elasticsearch stores fields in Apache Lucene segments with the type baked in at index time. Changing a field from `text` to `keyword` (or `integer` to `long`) requires rewriting all segments — which ES does not support in-place.
+
+When `synchronize: 'sync'` detects a breaking change, it throws `BreakingSchemaChangeError` at bootstrap to stop a misconfigured deployment early:
+
+```
+BreakingSchemaChangeError: Breaking Elasticsearch schema change detected for products:
+  name (text → keyword). Reindex migration is required.
+```
+
+**The fix**: create a new index (`products-v2`), reindex data, swap the alias. This will be automated by `EsKitModule.migrate()` in **v0.2**.
+
+Until then, use `EsIndexManager` directly in a one-off script:
+
+```ts
+// migration script (pseudocode until v0.2)
+await manager.create(ProductV2);
+await client.reindex({ source: { index: 'products-v1' }, dest: { index: 'products-v2' } });
+await client.indices.updateAliases({
+  actions: [
+    { remove: { index: 'products-v1', alias: 'products' } },
+    { add:    { index: 'products-v2', alias: 'products' } },
+  ],
+});
+```
+
+---
+
+### Error Classes
+
+```ts
+import {
+  EsKitError,              // base class — all errors extend this
+  IndexNotFoundError,      // index doesn't exist (synchronize: 'none')
+  IndexAlreadyExistsError,
+  BreakingSchemaChangeError, // diff.isBreaking — message includes changed field list
+  BulkPartialFailureError,   // opt-in: bulkIndex({ throwOnFailure: true })
+  SchemaMetadataError,       // decorator misconfiguration (e.g., zero @EsField)
+  UnsupportedEsVersionError, // connected to ES < 8
+} from 'nestjs-es-kit';
+```
+
+All errors preserve the original ES error as `cause`.
+
+---
+
+## Roadmap
+
+| Version | Scope |
+|---|---|
+| **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy |
+| **v0.2** | `migrate()` — zero-downtime alias-swap reindex, `npx es-kit migrate` CLI |
+| **v0.3** | Expanded search type safety, scroll/PIT helpers |
+| **v0.4** | Per-aggregation response type inference, nori user dictionary support |
+
+---
+
+## License
+
+MIT © [songminwoo](https://github.com/smw0807)
