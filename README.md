@@ -5,6 +5,8 @@
 [![npm version](https://badge.fury.io/js/nestjs-es-kit.svg)](https://badge.fury.io/js/nestjs-es-kit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> 한국어 문서: [README.ko.md](./README.ko.md)
+
 Declare your Elasticsearch schema once as a decorated TypeScript class — `nestjs-es-kit` handles index creation, mapping synchronization, and breaking-change detection automatically at application bootstrap.
 
 ```ts
