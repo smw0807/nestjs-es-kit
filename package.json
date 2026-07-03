@@ -1,13 +1,33 @@
 {
   "name": "nestjs-es-kit",
   "version": "0.0.0",
-  "description": "Elasticsearch index lifecycle management toolkit for NestJS",
+  "description": "Decorator-driven Elasticsearch index lifecycle management for NestJS — schema declaration, auto index sync, zero-downtime migration, and Korean nori preset",
   "license": "MIT",
-  "author": "songminwoo",
+  "author": "songminwoo <smw0807@gmail.com>",
+  "homepage": "https://github.com/smw0807/nestjs-es-kit#readme",
+  "bugs": {
+    "url": "https://github.com/smw0807/nestjs-es-kit/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/smw0807/nestjs-es-kit.git"
   },
+  "keywords": [
+    "nestjs",
+    "elasticsearch",
+    "elastic",
+    "decorator",
+    "schema",
+    "index-management",
+    "mapping",
+    "reindex",
+    "migration",
+    "nori",
+    "korean",
+    "typescript",
+    "es8",
+    "es9"
+  ],
   "type": "module",
   "packageManager": "pnpm@11.1.3",
   "main": "./dist/index.cjs",
