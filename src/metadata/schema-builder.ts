@@ -44,6 +44,7 @@ export class SchemaBuilder {
       alias,
       useAlias,
       mappings: {
+        ...(index.dynamic !== undefined ? { dynamic: index.dynamic } : {}),
         ...this.buildDynamicTemplates(index.dynamicTemplates),
         properties: this.buildProperties(fields),
       },
@@ -143,6 +144,10 @@ export class SchemaBuilder {
       mapping.properties = this.buildProperties(getMetadataStorage().getFields(field.properties()));
     }
 
+    if (field.dynamic !== undefined) {
+      mapping.dynamic = field.dynamic;
+    }
+
     return mapping;
   }
 
@@ -179,6 +184,10 @@ export class SchemaBuilder {
 
     if (mapping.properties !== undefined) {
       normalized.properties = mapping.properties;
+    }
+
+    if (mapping.dynamic !== undefined) {
+      normalized.dynamic = mapping.dynamic;
     }
 
     return normalized;

@@ -16,12 +16,27 @@ export interface EsKitModuleAsyncOptions {
   useFactory: (...args: readonly unknown[]) => EsKitModuleOptions | Promise<EsKitModuleOptions>;
 }
 
+/**
+ * Elasticsearch `dynamic` 매핑 파라미터.
+ * - `true`: 새 필드 자동 매핑 (기본값)
+ * - `false`: 새 필드 무시 (`_source`에는 저장, 검색 불가)
+ * - `'strict'`: 새 필드가 포함된 문서 색인 거부 (예외 발생)
+ * - `'runtime'`: 새 필드를 runtime field로 추가
+ */
+export type EsDynamicMode = true | false | 'strict' | 'runtime';
+
 export interface EsIndexOptions {
   name: string;
   useAlias?: boolean;
   version?: number;
   settings?: EsIndexSettings;
   dynamicTemplates?: EsDynamicTemplate[];
+  /**
+   * 인덱스 레벨 dynamic 매핑 설정.
+   * `'strict'`로 설정하면 선언되지 않은 새 필드가 포함된 문서를 거부합니다.
+   * @default true (ES 기본값)
+   */
+  dynamic?: EsDynamicMode;
 }
 
 export interface EsIndexSettings {
@@ -63,6 +78,11 @@ export interface EsFieldOptions {
   nullValue?: string | number | boolean;
   format?: string;
   properties?: () => EsDocumentClass;
+  /**
+   * `object` / `nested` 필드 레벨 dynamic 매핑 설정.
+   * 특정 중첩 객체에만 `'strict'`를 적용할 때 사용합니다.
+   */
+  dynamic?: EsDynamicMode;
 }
 
 export interface EsFieldMetadata extends EsFieldOptions {
@@ -79,6 +99,7 @@ export type EsFieldMapping = {
   null_value?: string | number | boolean;
   format?: string;
   properties?: Record<string, EsFieldMapping>;
+  dynamic?: EsDynamicMode;
 };
 
 export interface EsSchema {
@@ -87,6 +108,7 @@ export interface EsSchema {
   useAlias: boolean;
   settings?: Record<string, unknown>;
   mappings: {
+    dynamic?: EsDynamicMode;
     dynamic_templates?: Array<Record<string, Omit<EsDynamicTemplate, 'name'>>>;
     properties: Record<string, EsFieldMapping>;
   };

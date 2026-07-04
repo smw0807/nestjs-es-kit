@@ -189,27 +189,29 @@ export class ProductService {
 
 #### `@EsIndex(options)`
 
-| Option             | Type                  | Default  | Description                                                                                                    |
-| ------------------ | --------------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `name`             | `string`              | required | Index base name. Physical index: `{name}-v1` when `useAlias: true`                                             |
-| `useAlias`         | `boolean`             | `true`   | Create a physical index `{name}-v{version}` and an alias `{name}`                                              |
-| `version`          | `number`              | `1`      | Current schema version (used for physical index naming)                                                        |
-| `settings`         | `EsIndexSettings`     | —        | `numberOfShards`, `numberOfReplicas`, `refreshInterval`, `analysis`                                            |
-| `dynamicTemplates` | `EsDynamicTemplate[]` | —        | ES [dynamic templates](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-templates.html) |
+| Option             | Type                              | Default  | Description                                                                                                    |
+| ------------------ | --------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `name`             | `string`                          | required | Index base name. Physical index: `{name}-v1` when `useAlias: true`                                             |
+| `useAlias`         | `boolean`                         | `true`   | Create a physical index `{name}-v{version}` and an alias `{name}`                                              |
+| `version`          | `number`                          | `1`      | Current schema version (used for physical index naming)                                                        |
+| `settings`         | `EsIndexSettings`                 | —        | `numberOfShards`, `numberOfReplicas`, `refreshInterval`, `analysis`                                            |
+| `dynamicTemplates` | `EsDynamicTemplate[]`             | —        | ES [dynamic templates](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-templates.html) |
+| `dynamic`          | `true \| false \| 'strict' \| 'runtime'` | `true` (ES default) | Controls how unknown fields in documents are handled (see [Dynamic mapping](#dynamic-mapping)) |
 
 #### `@EsField(options)`
 
-| Option           | Type                             | Description                                                                                            |
-| ---------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `type`           | `EsFieldType`                    | `keyword` `text` `integer` `long` `float` `double` `boolean` `date` `object` `nested` `ip` `geo_point` |
-| `analyzer`       | `string`                         | Index-time analyzer                                                                                    |
-| `searchAnalyzer` | `string`                         | Search-time analyzer (defaults to `analyzer`)                                                          |
-| `fields`         | `Record<string, EsFieldMapping>` | Multi-fields (e.g., `.raw` keyword sub-field)                                                          |
-| `index`          | `boolean`                        | Disable indexing for a field                                                                           |
-| `docValues`      | `boolean`                        | Disable doc values                                                                                     |
-| `nullValue`      | `string \| number \| boolean`    | Substitute for `null` during indexing                                                                  |
-| `format`         | `string`                         | Date format string                                                                                     |
-| `properties`     | `() => Class`                    | Nested/object class reference (lazy to avoid circular imports)                                         |
+| Option           | Type                              | Description                                                                                             |
+| ---------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `type`           | `EsFieldType`                     | `keyword` `text` `integer` `long` `float` `double` `boolean` `date` `object` `nested` `ip` `geo_point` |
+| `analyzer`       | `string`                          | Index-time analyzer                                                                                     |
+| `searchAnalyzer` | `string`                          | Search-time analyzer (defaults to `analyzer`)                                                           |
+| `fields`         | `Record<string, EsFieldMapping>`  | Multi-fields (e.g., `.raw` keyword sub-field)                                                           |
+| `index`          | `boolean`                         | Disable indexing for a field                                                                            |
+| `docValues`      | `boolean`                         | Disable doc values                                                                                      |
+| `nullValue`      | `string \| number \| boolean`     | Substitute for `null` during indexing                                                                   |
+| `format`         | `string`                          | Date format string                                                                                      |
+| `properties`     | `() => Class`                     | Nested/object class reference (lazy to avoid circular imports)                                          |
+| `dynamic`        | `true \| false \| 'strict' \| 'runtime'` | Per-field dynamic mapping for `object`/`nested` types                                          |
 
 #### `@InjectIndex(SchemaClass)`
 
@@ -492,6 +494,52 @@ class Article {
 
 ---
 
+### Dynamic Mapping
+
+The `dynamic` option controls how Elasticsearch handles fields that appear in a document but are **not declared** in the mapping.
+
+| Value | Behavior |
+|-------|----------|
+| `true` | Auto-map new fields (ES default) |
+| `false` | Ignore new fields — stored in `_source` but not searchable |
+| `'strict'` | **Reject** documents that contain undeclared fields (exception thrown) |
+| `'runtime'` | Add new fields as [runtime fields](https://www.elastic.co/guide/en/elasticsearch/reference/current/runtime.html) |
+
+#### Index-level strict mode
+
+```ts
+@EsIndex({
+  name: 'products',
+  dynamic: 'strict', // reject any document with undeclared fields
+})
+export class Product {
+  @EsField({ type: 'keyword' }) id: string;
+  @EsField({ type: 'text' }) name: string;
+}
+```
+
+Indexing `{ id: '1', name: 'Laptop', unknownField: 'value' }` will throw a `strict_dynamic_mapping_exception`.
+
+#### Per-field strict mode (object / nested)
+
+You can apply `dynamic` selectively to a nested object while leaving the top-level index open:
+
+```ts
+@EsIndex({ name: 'orders' })
+export class Order {
+  @EsField({ type: 'keyword' }) id: string;
+
+  @EsField({
+    type: 'object',
+    properties: () => Address,
+    dynamic: 'strict', // only the nested Address object rejects unknown fields
+  })
+  address?: Address;
+}
+```
+
+---
+
 ### Why Can't You Change Field Types?
 
 Elasticsearch stores fields in Apache Lucene segments with the type baked in at index time. Changing a field from `text` to `keyword` (or `integer` to `long`) requires rewriting all segments — which ES does not support in-place.
@@ -602,7 +650,7 @@ Response when healthy:
 | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy              |
 | **v0.2** | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat                  |
-| **v0.3** | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types |
+| **v0.3** | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types, `dynamic` mapping option |
 | **v0.4** | `npx es-kit migrate` CLI, per-aggregation response type inference, nori user dictionary support                              |
 
 ---
