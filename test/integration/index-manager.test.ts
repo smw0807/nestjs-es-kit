@@ -5,7 +5,7 @@ import type { StartedTestContainer } from 'testcontainers';
 
 import { EsField } from '../../src/decorators/es-field.decorator.js';
 import { EsIndex } from '../../src/decorators/es-index.decorator.js';
-import { BreakingSchemaChangeError } from '../../src/errors/index.js';
+import { BreakingSchemaChangeError, MigrationError } from '../../src/errors/index.js';
 import { EsIndexManager } from '../../src/services/index-manager.service.js';
 import type { EsKitModuleOptions } from '../../src/types.js';
 import { cleanupIndices, startEsContainer, stopContainer } from './helpers.js';
@@ -45,6 +45,26 @@ class ImSimple {
   @EsField({ type: 'keyword' }) id!: string;
 }
 
+// migrate test schemas
+@EsIndex({ name: 'it-im-migrate', useAlias: true, version: 1, settings: { numberOfReplicas: 0 } })
+class ImMigrateV1 {
+  @EsField({ type: 'keyword' }) id!: string;
+  @EsField({ type: 'text' }) name!: string;
+}
+
+@EsIndex({ name: 'it-im-migrate', useAlias: true, version: 2, settings: { numberOfReplicas: 0 } })
+class ImMigrateV2 {
+  @EsField({ type: 'keyword' }) id!: string;
+  @EsField({ type: 'text' }) name!: string;
+  @EsField({ type: 'integer' }) price!: number;
+}
+
+// no-alias schema for migrate error test
+@EsIndex({ name: 'it-im-migrate-noalias', useAlias: false, settings: { numberOfReplicas: 0 } })
+class ImMigrateNoAlias {
+  @EsField({ type: 'keyword' }) id!: string;
+}
+
 // ---
 
 let container: StartedTestContainer | null;
@@ -63,7 +83,15 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  await cleanupIndices(client, 'it-im-product-v1', 'it-im-order-v1', 'it-im-simple');
+  await cleanupIndices(
+    client,
+    'it-im-product-v1',
+    'it-im-order-v1',
+    'it-im-simple',
+    'it-im-migrate-v1',
+    'it-im-migrate-v2',
+    'it-im-migrate-noalias',
+  );
 });
 
 describe('EsIndexManager — create', () => {
@@ -171,6 +199,60 @@ describe('EsIndexManager — syncMapping', () => {
     const manager = makeManager('sync');
     await manager.create(ImProduct);
     await expect(manager.syncMapping(ImProductBreaking)).rejects.toBeInstanceOf(BreakingSchemaChangeError);
+  });
+});
+
+describe('EsIndexManager — migrate', () => {
+  it('reindexes documents and swaps alias from v1 to v2', async () => {
+    const manager = makeManager('create');
+    await manager.create(ImMigrateV1);
+
+    await client.index({
+      index: 'it-im-migrate-v1',
+      id: 'doc-1',
+      document: { id: 'doc-1', name: 'test' },
+      refresh: 'wait_for',
+    });
+
+    const result = await manager.migrate(ImMigrateV2);
+
+    expect(result.fromIndex).toBe('it-im-migrate-v1');
+    expect(result.toIndex).toBe('it-im-migrate-v2');
+    expect(result.documentsReindexed).toBe(1);
+
+    // alias now points to v2
+    const aliasResponse = await client.indices.getAlias({ name: 'it-im-migrate' });
+    expect(Object.keys(aliasResponse)).toContain('it-im-migrate-v2');
+    expect(Object.keys(aliasResponse)).not.toContain('it-im-migrate-v1');
+
+    // new mapping includes price field
+    const mapping = await client.indices.getMapping({ index: 'it-im-migrate-v2' });
+    expect(mapping['it-im-migrate-v2']?.mappings.properties).toHaveProperty('price');
+  });
+
+  it('deletes old index when deleteOldIndex option is true', async () => {
+    const manager = makeManager('create');
+    await manager.create(ImMigrateV1);
+    await manager.migrate(ImMigrateV2, { deleteOldIndex: true });
+
+    const v1Exists = await client.indices.exists({ index: 'it-im-migrate-v1' });
+    expect(v1Exists).toBe(false);
+  });
+
+  it('throws MigrationError when target version is already active', async () => {
+    const manager = makeManager('create');
+    await manager.create(ImMigrateV1);
+    await expect(manager.migrate(ImMigrateV1)).rejects.toBeInstanceOf(MigrationError);
+  });
+
+  it('throws MigrationError when useAlias is false', async () => {
+    const manager = makeManager('create');
+    await expect(manager.migrate(ImMigrateNoAlias)).rejects.toBeInstanceOf(MigrationError);
+  });
+
+  it('throws MigrationError when alias does not exist', async () => {
+    const manager = makeManager('create');
+    await expect(manager.migrate(ImMigrateV2)).rejects.toBeInstanceOf(MigrationError);
   });
 });
 

@@ -159,4 +159,15 @@ export interface SchemaDiff {
   isBreaking: boolean;
 }
 
+export interface MigrateOptions {
+  /** Delete the old physical index after alias swap. Default: false */
+  deleteOldIndex?: boolean;
+}
+
+export interface MigrateResult {
+  fromIndex: string;
+  toIndex: string;
+  documentsReindexed: number;
+}
+
 export type EsClient = Client;

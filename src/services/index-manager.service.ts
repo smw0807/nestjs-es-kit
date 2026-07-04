@@ -2,10 +2,10 @@ import { Inject, Injectable, Logger, type OnModuleInit, Optional } from '@nestjs
 import type { estypes } from '@elastic/elasticsearch';
 
 import { ES_KIT_CLIENT, ES_KIT_OPTIONS } from '../constants.js';
-import { BreakingSchemaChangeError } from '../errors/index.js';
+import { BreakingSchemaChangeError, MigrationError } from '../errors/index.js';
 import { SchemaBuilder } from '../metadata/schema-builder.js';
 import { diffMappings } from '../migration/schema-diff.js';
-import type { EsClient, EsDocumentClass, EsKitModuleOptions, SchemaDiff } from '../types.js';
+import type { EsClient, EsDocumentClass, EsKitModuleOptions, MigrateOptions, MigrateResult, SchemaDiff } from '../types.js';
 
 @Injectable()
 export class EsIndexManager implements OnModuleInit {
@@ -97,6 +97,82 @@ export class EsIndexManager implements OnModuleInit {
     const indexMapping = mappingResponse[schema.index]?.mappings.properties ?? {};
 
     return diffMappings(schema.mappings.properties, indexMapping as Record<string, never>);
+  }
+
+  async migrate<TDocument extends object>(
+    target: EsDocumentClass<TDocument>,
+    options: MigrateOptions = {},
+  ): Promise<MigrateResult> {
+    const schema = this.schemaBuilder.build(target);
+
+    if (!schema.useAlias) {
+      throw new MigrationError(
+        `Cannot migrate ${schema.index}: migration requires useAlias: true on @EsIndex.`,
+      );
+    }
+
+    let oldIndex: string;
+    try {
+      const aliasResponse = await this.client.indices.getAlias({ name: schema.alias });
+      const indices = Object.keys(aliasResponse);
+      const first = indices[0];
+      if (first === undefined) {
+        throw new MigrationError(`Alias ${schema.alias} points to no index.`);
+      }
+      oldIndex = first;
+    } catch (error) {
+      if (error instanceof MigrationError) throw error;
+      throw new MigrationError(
+        `Alias ${schema.alias} not found. Create the index first (synchronize: 'create' or 'sync').`,
+        { cause: error },
+      );
+    }
+
+    if (oldIndex === schema.index) {
+      throw new MigrationError(
+        `${schema.index} is already the active index for alias ${schema.alias}. Increment version in @EsIndex to proceed.`,
+      );
+    }
+
+    const request: estypes.IndicesCreateRequest = {
+      index: schema.index,
+      mappings: schema.mappings as unknown as estypes.MappingTypeMapping,
+    };
+    if (schema.settings !== undefined) {
+      request.settings = schema.settings;
+    }
+    await this.client.indices.create(request);
+
+    const reindexResponse = await this.client.reindex({
+      source: { index: oldIndex },
+      dest: { index: schema.index },
+      wait_for_completion: true,
+    });
+
+    await this.client.indices.updateAliases({
+      actions: [
+        { remove: { index: oldIndex, alias: schema.alias } },
+        { add: { index: schema.index, alias: schema.alias } },
+      ],
+    });
+
+    if (options.deleteOldIndex === true) {
+      await this.client.indices.delete({ index: oldIndex });
+    }
+
+    const result: MigrateResult = {
+      fromIndex: oldIndex,
+      toIndex: schema.index,
+      documentsReindexed: (reindexResponse.created ?? 0) + (reindexResponse.updated ?? 0),
+    };
+
+    if (this.options.logger === true) {
+      this.logger.log(
+        `Migrated ${String(result.documentsReindexed)} docs: ${oldIndex} → ${schema.index}. Alias ${schema.alias} updated.`,
+      );
+    }
+
+    return result;
   }
 
   async syncMapping<TDocument extends object>(target: EsDocumentClass<TDocument>): Promise<void> {

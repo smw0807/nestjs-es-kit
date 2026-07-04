@@ -16,3 +16,5 @@ export class BulkPartialFailureError extends EsKitError {}
 export class SchemaMetadataError extends EsKitError {}
 
 export class UnsupportedEsVersionError extends EsKitError {}
+
+export class MigrationError extends EsKitError {}

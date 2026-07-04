@@ -381,7 +381,32 @@ await this.indexManager.create(Product);
 await this.indexManager.delete(Product, { force: true });  // force required
 await this.indexManager.syncMapping(Product);
 await this.indexManager.diff(Product);
+await this.indexManager.migrate(ProductV2);              // zero-downtime reindex
+await this.indexManager.migrate(ProductV2, { deleteOldIndex: true }); // + remove old index
 ```
+
+#### `migrate()`
+
+Zero-downtime alias-swap reindex from the current physical index to the next version.
+
+```ts
+// 1. Update @EsIndex version
+@EsIndex({ name: 'products', version: 2 })
+class ProductV2 { ... }
+
+// 2. In a deploy script or NestJS bootstrap hook
+const result = await indexManager.migrate(ProductV2, { deleteOldIndex: false });
+// result.fromIndex       → 'products-v1'
+// result.toIndex         → 'products-v2'
+// result.documentsReindexed → number
+```
+
+Requirements:
+- `useAlias: true` must be set on `@EsIndex`
+- The alias must already exist (created by `synchronize: 'create'` or `'sync'`)
+- The version in `@EsIndex` must be incremented from the currently active index
+
+Throws `MigrationError` if the alias doesn't exist, `useAlias` is false, or the target version is already active.
 
 #### `SchemaDiff`
 
@@ -415,18 +440,22 @@ import { koreanAnalysis } from 'nestjs-es-kit';
   settings: {
     analysis: koreanAnalysis({
       decompound: 'mixed', // 'none' | 'discard' | 'mixed' (default)
-      stoptags: ['J', 'E', 'SP'], // POS tags to filter (default: standard Korean stop tags)
-      synonyms: ['노트북, 랩탑'], // optional synonym list
+      stoptags: ['IC', 'SP'],  // POS tags — ES 9.x uses fine-grained Sejong tags; ES 8.x also supported 'J','E'
+      synonyms: ['노트북,랩탑'], // optional synonym list (comma-separated, no spaces)
     }),
   },
 })
 class Article {
-  @EsField({ type: 'text', analyzer: 'nori_analyzer' })
+  @EsField({ type: 'text', analyzer: 'nori_analyzer', searchAnalyzer: 'nori_search_analyzer' })
   title: string;
 }
 ```
 
-`koreanAnalysis()` generates: `nori_tokenizer` + `nori_part_of_speech` filter + `lowercase` filter — wired into a `nori_analyzer` you can reference from any `@EsField`.
+`koreanAnalysis()` generates:
+- `nori_analyzer` — index-time: `nori_tokenizer` + POS filter + `lowercase`
+- `nori_search_analyzer` — search-time: adds `synonym_graph` filter before POS filter (only when `synonyms` is set)
+
+> **Note**: Default `stoptags` is empty for ES 8/9 compatibility. ES 9.x (Lucene 10) uses fine-grained Sejong tagset (`JKS`, `EF`, etc.) instead of the aggregated tags (`J`, `E`) used in ES 8.x.
 
 ---
 
@@ -441,24 +470,15 @@ BreakingSchemaChangeError: Breaking Elasticsearch schema change detected for pro
   name (text → keyword). Reindex migration is required.
 ```
 
-**The fix**: create a new index (`products-v2`), reindex data, swap the alias. This will be automated by `EsKitModule.migrate()` in **v0.2**.
-
-Until then, use `EsIndexManager` directly in a one-off script:
+**The fix**: create a new index (`products-v2`), reindex data, swap the alias. Use `EsIndexManager.migrate()`:
 
 ```ts
-// migration script (pseudocode until v0.2)
-await manager.create(ProductV2);
-await client.reindex({
-  source: { index: 'products-v1' },
-  dest: { index: 'products-v2' },
-});
-await client.indices.updateAliases({
-  actions: [
-    { remove: { index: 'products-v1', alias: 'products' } },
-    { add: { index: 'products-v2', alias: 'products' } },
-  ],
-});
+// Increment version in @EsIndex({ version: 2 }), then:
+const result = await indexManager.migrate(ProductV2, { deleteOldIndex: true });
+// products-v1 → products-v2, alias 'products' atomically swapped
 ```
+
+See [`migrate()` docs](#migrate) above for details.
 
 ---
 
@@ -466,17 +486,80 @@ await client.indices.updateAliases({
 
 ```ts
 import {
-  EsKitError, // base class — all errors extend this
-  IndexNotFoundError, // index doesn't exist (synchronize: 'none')
+  EsKitError,             // base class — all errors extend this
+  IndexNotFoundError,     // index doesn't exist (synchronize: 'none')
   IndexAlreadyExistsError,
   BreakingSchemaChangeError, // diff.isBreaking — message includes changed field list
-  BulkPartialFailureError, // opt-in: bulkIndex({ throwOnFailure: true })
-  SchemaMetadataError, // decorator misconfiguration (e.g., zero @EsField)
+  BulkPartialFailureError,   // opt-in: bulkIndex({ throwOnFailure: true })
+  SchemaMetadataError,    // decorator misconfiguration (e.g., zero @EsField)
   UnsupportedEsVersionError, // connected to ES < 8
+  MigrationError,         // migrate() — alias not found, useAlias: false, version conflict
 } from 'nestjs-es-kit';
 ```
 
 All errors preserve the original ES error as `cause`.
+
+---
+
+### Health Check — `EsHealthIndicator`
+
+Requires [`@nestjs/terminus`](https://docs.nestjs.com/recipes/terminus):
+
+```bash
+npm install @nestjs/terminus
+```
+
+```ts
+// health.module.ts
+import { Module } from '@nestjs/common';
+import { TerminusModule } from '@nestjs/terminus';
+import { EsHealthIndicator } from 'nestjs-es-kit/health';
+
+@Module({
+  imports: [TerminusModule],
+  providers: [EsHealthIndicator],
+})
+export class HealthModule {}
+
+// health.controller.ts
+import { Controller, Get } from '@nestjs/common';
+import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
+import { EsHealthIndicator } from 'nestjs-es-kit/health';
+
+@Controller('health')
+export class HealthController {
+  constructor(
+    private health: HealthCheckService,
+    private es: EsHealthIndicator,
+  ) {}
+
+  @Get()
+  @HealthCheck()
+  check() {
+    return this.health.check([
+      () => this.es.isHealthy('elasticsearch'),
+    ]);
+  }
+}
+```
+
+Response when healthy:
+
+```json
+{
+  "status": "ok",
+  "info": {
+    "elasticsearch": {
+      "status": "up",
+      "clusterStatus": "green",
+      "numberOfNodes": 1,
+      "activeShards": 5
+    }
+  }
+}
+```
+
+`EsHealthIndicator` uses `GET /_cluster/health` and marks the indicator `down` when the cluster status is `red` or unreachable.
 
 ---
 
@@ -485,8 +568,8 @@ All errors preserve the original ES error as `cause`.
 | Version  | Scope                                                                                                          |
 | -------- | -------------------------------------------------------------------------------------------------------------- |
 | **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy |
-| **v0.2** | `migrate()` — zero-downtime alias-swap reindex, `npx es-kit migrate` CLI                                       |
-| **v0.3** | Expanded search type safety, scroll/PIT helpers                                                                |
+| **v0.2** | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat     |
+| **v0.3** | Expanded search type safety, scroll/PIT helpers, `npx es-kit migrate` CLI                                      |
 | **v0.4** | Per-aggregation response type inference, nori user dictionary support                                          |
 
 ---
