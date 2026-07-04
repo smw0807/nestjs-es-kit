@@ -253,3 +253,47 @@ describe('EsIndexService — aggregate', () => {
     expect(result.value).toBeCloseTo(1_500_000, -3);
   });
 });
+
+describe('EsIndexService — PIT / scanAll', () => {
+  beforeEach(async () => {
+    const docs = Array.from({ length: 5 }, (_, i) =>
+      makeDoc({ id: `scan-${String(i + 1)}`, price: (i + 1) * 100_000 }),
+    );
+    await service.bulkIndex(docs, { refresh: 'wait_for' });
+  });
+
+  it('openPit returns a non-empty PIT id', async () => {
+    const pitId = await service.openPit('1m');
+    expect(typeof pitId).toBe('string');
+    expect(pitId.length).toBeGreaterThan(0);
+    await service.closePit(pitId);
+  });
+
+  it('scanAll yields all documents across batches', async () => {
+    const allDocs: SvcProduct[] = [];
+    for await (const batch of service.scanAll({ batchSize: 2 })) {
+      allDocs.push(...batch);
+    }
+    expect(allDocs).toHaveLength(5);
+  });
+
+  it('scanAll applies query filter', async () => {
+    const allDocs: SvcProduct[] = [];
+    for await (const batch of service.scanAll({
+      query: { term: { category: 'electronics' } },
+    })) {
+      allDocs.push(...batch);
+    }
+    expect(allDocs.every((d) => d.category === 'electronics')).toBe(true);
+  });
+
+  it('scanAll yields empty when no documents match', async () => {
+    const allDocs: SvcProduct[] = [];
+    for await (const batch of service.scanAll({
+      query: { term: { category: 'nonexistent' } },
+    })) {
+      allDocs.push(...batch);
+    }
+    expect(allDocs).toHaveLength(0);
+  });
+});

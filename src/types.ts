@@ -1,4 +1,4 @@
-import type { Client, ClientOptions } from '@elastic/elasticsearch';
+import type { Client, ClientOptions, estypes } from '@elastic/elasticsearch';
 import type { DynamicModule, Type } from '@nestjs/common';
 
 export type EsDocumentClass<TDocument extends object = object> = Type<TDocument>;
@@ -92,14 +92,48 @@ export interface EsSchema {
   };
 }
 
+/** Per-field sort options (order, mode, missing, nested). */
+export interface EsSortFieldOptions {
+  order?: 'asc' | 'desc';
+  mode?: 'min' | 'max' | 'sum' | 'avg' | 'median';
+  missing?: string | number;
+  nested?: { path: string; filter?: estypes.QueryDslQueryContainer };
+}
+
+/**
+ * Sort expression for a single sort clause.
+ * - `{ field: 'asc' | 'desc' }` — simple order
+ * - `{ field: EsSortFieldOptions }` — extended options
+ * - `{ _score: 'desc' }` / `{ _doc: 'asc' }` — meta fields
+ */
+export type EsSortClause<TDocument extends object> =
+  | Partial<Record<Extract<keyof TDocument, string>, 'asc' | 'desc' | EsSortFieldOptions>>
+  | { _score?: 'asc' | 'desc' }
+  | { _doc?: 'asc' | 'desc' };
+
+/** @deprecated Use `EsSortClause<TDocument>[]` or `EsSort` alias. */
 export type EsSort<TDocument extends object> = Array<Partial<Record<Extract<keyof TDocument, string>, 'asc' | 'desc'>>>;
 
 export interface EsSearchOptions<TDocument extends object> {
-  query?: Record<string, unknown>;
-  sort?: EsSort<TDocument>;
+  query?: estypes.QueryDslQueryContainer;
+  sort?: Array<EsSortClause<TDocument>>;
   size?: number;
   from?: number;
   after?: readonly unknown[];
+}
+
+export interface EsScanOptions<TDocument extends object> {
+  /** ES query DSL — defaults to match_all */
+  query?: estypes.QueryDslQueryContainer;
+  /**
+   * Sort for deterministic ordering. Defaults to `[{ _doc: 'asc' }]`.
+   * `_shard_doc` tiebreaker is added automatically.
+   */
+  sort?: Array<EsSortClause<TDocument>>;
+  /** Documents per page. Default 1000. */
+  batchSize?: number;
+  /** PIT keep-alive duration. Default '1m'. */
+  keepAlive?: string;
 }
 
 export interface EsSearchHit<TDocument extends object> {

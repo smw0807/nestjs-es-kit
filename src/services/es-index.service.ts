@@ -7,6 +7,7 @@ import type {
   BulkIndexOptions,
   BulkResult,
   EsDocumentClass,
+  EsScanOptions,
   EsSearchAfterResult,
   EsSearchOptions,
   EsSearchResult,
@@ -176,6 +177,62 @@ export class EsIndexService<TDocument extends object> {
     }
 
     return response;
+  }
+
+  async openPit(keepAlive: string = '1m'): Promise<string> {
+    const response = await this.raw.openPointInTime({
+      index: this.indexName,
+      keep_alive: keepAlive,
+    });
+    return response.id;
+  }
+
+  async closePit(pitId: string): Promise<void> {
+    await this.raw.closePointInTime({ id: pitId });
+  }
+
+  async *scanAll(options: EsScanOptions<TDocument> = {}): AsyncGenerator<TDocument[], void, unknown> {
+    const batchSize = options.batchSize ?? 1000;
+    const keepAlive = options.keepAlive ?? '1m';
+    const sort: estypes.Sort = options.sort !== undefined
+      ? ([...options.sort, { _shard_doc: 'asc' }] as estypes.Sort)
+      : ([{ _doc: 'asc' }, { _shard_doc: 'asc' }] as estypes.Sort);
+
+    const pitId = await this.openPit(keepAlive);
+    let searchAfter: estypes.SortResults | undefined;
+    let done = false;
+
+    try {
+      while (!done) {
+        const request: estypes.SearchRequest = {
+          pit: { id: pitId, keep_alive: keepAlive },
+          sort,
+          size: batchSize,
+          ...(options.query !== undefined ? { query: options.query } : {}),
+          ...(searchAfter !== undefined ? { search_after: searchAfter } : {}),
+        };
+
+        const response = await this.raw.search<TDocument>(request);
+        const hits = response.hits.hits.filter(
+          (hit): hit is estypes.SearchHit<TDocument> & { _source: TDocument } => hit._source !== undefined,
+        );
+
+        if (hits.length === 0) {
+          done = true;
+        } else {
+          yield hits.map((hit) => hit._source);
+
+          const lastSort = hits.at(-1)?.sort;
+          if (hits.length < batchSize || lastSort === undefined) {
+            done = true;
+          } else {
+            searchAfter = lastSort;
+          }
+        }
+      }
+    } finally {
+      await this.closePit(pitId).catch(() => undefined);
+    }
   }
 
   async aggregate<TAggregations extends Record<string, estypes.AggregationsAggregationContainer>>(

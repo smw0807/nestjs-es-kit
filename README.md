@@ -341,6 +341,16 @@ const page = await this.products.searchAfter({
   after: prevPage.nextCursor, // omit for first page
 });
 page.nextCursor; // pass to the next call
+
+// scan all — async generator via Point-in-Time (large dataset iteration)
+for await (const batch of this.products.scanAll({
+  query: { term: { category: 'electronics' } },
+  sort: [{ createdAt: 'asc' }],
+  batchSize: 1000,
+  keepAlive: '1m',
+})) {
+  await processInBatch(batch); // batch: Product[]
+}
 ```
 
 #### Aggregations
@@ -359,6 +369,29 @@ const categories = aggs['byCategory'] as {
 };
 const avgPrice = aggs['avgPrice'] as { value: number };
 ```
+
+#### Point-in-Time (PIT) helpers
+
+```ts
+// Manual PIT control (advanced use-cases)
+const pitId = await this.products.openPit('5m');
+// ... multiple search_after calls reusing the same PIT ...
+await this.products.closePit(pitId);
+
+// scanAll — async generator, opens/closes PIT automatically
+for await (const batch of this.products.scanAll({ batchSize: 500 })) {
+  // batch: Product[] — each iteration is one page
+}
+```
+
+`scanAll` options:
+
+| Option      | Type                            | Default       |
+| ----------- | ------------------------------- | ------------- |
+| `query`     | `QueryDslQueryContainer`        | `match_all`   |
+| `sort`      | `EsSortClause[]`                | `[{_doc:'asc'}]` |
+| `batchSize` | `number`                        | `1000`        |
+| `keepAlive` | `string`                        | `'1m'`        |
 
 #### Raw escape hatch
 
@@ -565,12 +598,12 @@ Response when healthy:
 
 ## Roadmap
 
-| Version  | Scope                                                                                                          |
-| -------- | -------------------------------------------------------------------------------------------------------------- |
-| **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy |
-| **v0.2** | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat     |
-| **v0.3** | Expanded search type safety, scroll/PIT helpers, `npx es-kit migrate` CLI                                      |
-| **v0.4** | Per-aggregation response type inference, nori user dictionary support                                          |
+| Version  | Scope                                                                                                                        |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy              |
+| **v0.2** | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat                  |
+| **v0.3** | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types |
+| **v0.4** | `npx es-kit migrate` CLI, per-aggregation response type inference, nori user dictionary support                              |
 
 ---
 
