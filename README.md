@@ -364,20 +364,35 @@ for await (const batch of this.products.scanAll({
 
 #### Aggregations
 
+Response types are inferred automatically from the aggregation definition:
+
 ```ts
 const aggs = await this.products.aggregate(
   {
     byCategory: { terms: { field: 'category', size: 10 } },
-    avgPrice: { avg: { field: 'price' } },
+    avgPrice:   { avg:   { field: 'price' } },
+    totalCount: { value_count: { field: 'id' } },
   },
   { query: { range: { price: { gte: 10000 } } } }, // optional pre-filter
 );
 
-const categories = aggs['byCategory'] as {
-  buckets: { key: string; doc_count: number }[];
-};
-const avgPrice = aggs['avgPrice'] as { value: number };
+// TypeScript infers:
+aggs.byCategory.buckets;       // TermsBucket[]   — { key, doc_count }[]
+aggs.avgPrice.value;           // number | null
+aggs.totalCount.value;         // number
 ```
+
+Supported aggregation → result type mappings:
+
+| Aggregation | Result type |
+|-------------|-------------|
+| `terms`, `significant_terms` | `{ buckets: TermsBucket[] }` |
+| `avg`, `min`, `max`, `sum`, `median_absolute_deviation` | `{ value: number \| null }` |
+| `value_count`, `cardinality` | `{ value: number }` |
+| `date_histogram` | `{ buckets: DateHistogramBucket[] }` |
+| `range`, `date_range`, `ip_range` | `{ buckets: RangeBucket[] }` |
+| `top_hits` | `{ hits: { total: ...; hits: SearchHit[] } }` |
+| Other | `unknown` |
 
 #### Point-in-Time (PIT) helpers
 
@@ -482,9 +497,14 @@ import { koreanAnalysis } from 'nestjs-es-kit';
   name: 'articles',
   settings: {
     analysis: koreanAnalysis({
-      decompound: 'mixed', // 'none' | 'discard' | 'mixed' (default)
-      stoptags: ['IC', 'SP'],  // POS tags — ES 9.x uses fine-grained Sejong tags; ES 8.x also supported 'J','E'
-      synonyms: ['노트북,랩탑'], // optional synonym list (comma-separated, no spaces)
+      decompound: 'mixed',           // 'none' | 'discard' | 'mixed' (default)
+      stoptags: ['IC', 'SP'],        // POS tags — ES 9.x: fine-grained Sejong tags; ES 8.x: 'J','E'
+      synonyms: ['노트북,랩탑'],      // synonym list — creates nori_search_analyzer automatically
+      userDictionaryRules: [         // inline user dictionary rules
+        '삼성전자',
+        'LG전자',
+        '카카오 카카오',              // '단어 분해1 분해2' format for custom segmentation
+      ],
     }),
   },
 })
@@ -499,6 +519,79 @@ class Article {
 - `nori_search_analyzer` — search-time: adds `synonym_graph` filter before POS filter (only when `synonyms` is set)
 
 > **Note**: Default `stoptags` is empty for ES 8/9 compatibility. ES 9.x (Lucene 10) uses fine-grained Sejong tagset (`JKS`, `EF`, etc.) instead of the aggregated tags (`J`, `E`) used in ES 8.x.
+
+---
+
+### CLI — `npx es-kit`
+
+Run index operations from the command line without starting the full NestJS app. Useful in CI/CD pipelines and deployment scripts.
+
+#### 1. Create a config file
+
+```js
+// es-kit.config.js  (ESM, committed to your repo)
+import { ProductV2 } from './dist/product.schema.js';
+import { Order } from './dist/order.schema.js';
+
+export default {
+  node: process.env.ES_NODE ?? 'http://localhost:9200',
+  auth: {
+    username: process.env.ES_USERNAME ?? 'elastic',
+    password: process.env.ES_PASSWORD ?? '',
+  },
+  schemas: [ProductV2, Order],
+};
+```
+
+> The config file imports from your **compiled** output (`dist/`). Run your TypeScript build first.
+
+#### 2. Run commands
+
+```bash
+# Show mapping and settings differences for all schemas
+npx es-kit diff --config ./es-kit.config.js
+
+# Apply mappings/settings changes (throws on breaking changes)
+npx es-kit sync --config ./es-kit.config.js
+
+# Create indices that do not exist yet
+npx es-kit create --config ./es-kit.config.js
+
+# Zero-downtime alias-swap reindex (requires useAlias: true)
+npx es-kit migrate --config ./es-kit.config.js
+npx es-kit migrate --config ./es-kit.config.js --delete-old  # also remove old index
+```
+
+`diff` exits with code 1 when breaking changes are detected. `sync` exits with code 1 if a breaking change would be applied.
+
+---
+
+### Standalone Manager
+
+Use `EsStandaloneManager` when you need programmatic control outside of a NestJS application context:
+
+```ts
+import { EsStandaloneManager } from 'nestjs-es-kit/standalone';
+import { ProductV2 } from './product.schema.js';
+
+const manager = new EsStandaloneManager({
+  node: 'http://localhost:9200',
+  auth: { username: 'elastic', password: 'secret' },
+});
+
+// Check differences
+const diff = await manager.diff(ProductV2);
+console.log(diff.settingsChanges, diff.isBreaking);
+
+// Zero-downtime migration
+const result = await manager.migrate(ProductV2, { deleteOldIndex: true });
+// result.fromIndex, result.toIndex, result.documentsReindexed
+
+// Sync (auto-applies dynamic settings, throws on breaking changes)
+await manager.sync(ProductV2);
+```
+
+`EsStandaloneManager` exposes: `exists`, `create`, `diff`, `sync`, `migrate`.
 
 ---
 
@@ -659,7 +752,7 @@ Response when healthy:
 | **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy              |
 | **v0.2** | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat                  |
 | **v0.3** | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types, `dynamic` mapping option, settings diff/sync in `synchronize: 'sync'` |
-| **v0.4** | `npx es-kit migrate` CLI, per-aggregation response type inference, nori user dictionary support                              |
+| **v0.4** | `npx es-kit` CLI (`migrate`/`sync`/`diff`/`create`), `EsStandaloneManager`, per-aggregation response type inference, nori `userDictionaryRules` |
 
 ---
 

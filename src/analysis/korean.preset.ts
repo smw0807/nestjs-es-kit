@@ -22,6 +22,17 @@ export interface KoreanAnalysisOptions {
    * 동의어가 있으면 별도의 `nori_search_analyzer`가 생성됩니다.
    */
   synonyms?: string[];
+  /**
+   * 사용자 정의 단어 목록 (인라인 규칙).
+   * nori tokenizer의 `user_dictionary_rules`에 직접 전달됩니다.
+   * 형식: `'단어'` 또는 `'단어 분해1 분해2'`
+   *
+   * @example
+   * ```ts
+   * userDictionaryRules: ['삼성전자', 'LG전자', '카카오 카카오']
+   * ```
+   */
+  userDictionaryRules?: string[];
 }
 
 // ES 8.x used aggregated tags (E, J). ES 9.x (Lucene 10) uses fine-grained Sejong tags.
@@ -65,12 +76,18 @@ export const koreanAnalysis = (options: KoreanAnalysisOptions = {}): Record<stri
 
   const baseFilters = ['nori_posfilter', 'lowercase'];
 
+  const tokenizerConfig: Record<string, unknown> = {
+    type: 'nori_tokenizer',
+    decompound_mode: options.decompound ?? 'mixed',
+  };
+
+  if (options.userDictionaryRules !== undefined && options.userDictionaryRules.length > 0) {
+    tokenizerConfig.user_dictionary_rules = options.userDictionaryRules;
+  }
+
   const result: Record<string, unknown> = {
     tokenizer: {
-      nori_tokenizer: {
-        type: 'nori_tokenizer',
-        decompound_mode: options.decompound ?? 'mixed',
-      },
+      nori_tokenizer: tokenizerConfig,
     },
     filter: filters,
     analyzer: {

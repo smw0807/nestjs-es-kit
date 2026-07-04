@@ -1,6 +1,6 @@
 {
   "name": "nestjs-es-kit",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Decorator-driven Elasticsearch index lifecycle management for NestJS — schema declaration, auto index sync, zero-downtime migration, and Korean nori preset",
   "license": "MIT",
   "author": "songminwoo <smw0807@gmail.com>",
@@ -33,6 +33,9 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "es-kit": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "import": {
@@ -52,6 +55,16 @@
       "require": {
         "types": "./dist/health.d.cts",
         "default": "./dist/health.cjs"
+      }
+    },
+    "./standalone": {
+      "import": {
+        "types": "./dist/standalone.d.ts",
+        "default": "./dist/standalone.js"
+      },
+      "require": {
+        "types": "./dist/standalone.d.cts",
+        "default": "./dist/standalone.cjs"
       }
     }
   },

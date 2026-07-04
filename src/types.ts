@@ -215,6 +215,70 @@ export interface SchemaDiff {
   isBreaking: boolean;
 }
 
+// ─── Aggregation type inference ──────────────────────────────────────────────
+
+/** `terms` / `significant_terms` 집계의 버킷 타입. */
+export interface TermsBucket {
+  key: string | number;
+  key_as_string?: string;
+  doc_count: number;
+}
+
+/** `date_histogram` 집계의 버킷 타입. */
+export interface DateHistogramBucket {
+  key: number;
+  key_as_string: string;
+  doc_count: number;
+}
+
+/** `range` / `date_range` 집계의 버킷 타입. */
+export interface RangeBucket {
+  key: string;
+  doc_count: number;
+  from?: number;
+  from_as_string?: string;
+  to?: number;
+  to_as_string?: string;
+}
+
+/**
+ * 집계 컨테이너 정의로부터 응답 타입을 추론합니다.
+ * 알 수 없는 집계 타입은 `unknown`으로 폴백합니다.
+ */
+export type AggregationResult<T extends estypes.AggregationsAggregationContainer> =
+  T extends { terms: unknown } | { significant_terms: unknown }
+    ? { buckets: TermsBucket[] }
+    : T extends { date_histogram: unknown }
+      ? { buckets: DateHistogramBucket[] }
+      : T extends { range: unknown } | { date_range: unknown } | { ip_range: unknown }
+        ? { buckets: RangeBucket[] }
+        : T extends { avg: unknown } | { min: unknown } | { max: unknown } | { sum: unknown } | { median_absolute_deviation: unknown }
+          ? { value: number | null }
+          : T extends { value_count: unknown } | { cardinality: unknown }
+            ? { value: number }
+            : T extends { top_hits: unknown }
+              ? { hits: { total: { value: number }; hits: estypes.SearchHit[] } }
+              : unknown;
+
+/**
+ * 집계 정의 맵 전체의 응답 타입을 추론합니다.
+ *
+ * @example
+ * ```ts
+ * const aggs = await service.aggregate({
+ *   byCategory: { terms: { field: 'category' } },
+ *   avgPrice:   { avg:   { field: 'price' } },
+ * });
+ * // aggs.byCategory → { buckets: TermsBucket[] }
+ * // aggs.avgPrice   → { value: number | null }
+ * ```
+ */
+export type AggregationsResult<TAggregations extends Record<string, estypes.AggregationsAggregationContainer>> = {
+  [K in keyof TAggregations]: AggregationResult<TAggregations[K]>;
+};
+
+// ─── Migration ───────────────────────────────────────────────────────────────
+
 export interface MigrateOptions {
   /** Delete the old physical index after alias swap. Default: false */
   deleteOldIndex?: boolean;

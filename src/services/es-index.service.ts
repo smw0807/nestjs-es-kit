@@ -3,6 +3,7 @@ import type { Client, estypes } from '@elastic/elasticsearch';
 import { BulkPartialFailureError } from '../errors/index.js';
 import { SchemaBuilder } from '../metadata/schema-builder.js';
 import type {
+  AggregationsResult,
   BulkFailedItem,
   BulkIndexOptions,
   BulkResult,
@@ -340,10 +341,19 @@ export class EsIndexService<TDocument extends object> {
    * @param options.query - 집계 전 적용할 필터 쿼리
    * @returns 집계 결과 (`TAggregations`의 키를 그대로 유지)
    */
+  /**
+   * 집계(aggregation)를 실행합니다.
+   * `size: 0`으로 문서는 반환하지 않고 집계 결과만 반환합니다.
+   * 집계 컨테이너 정의로부터 응답 타입이 자동 추론됩니다.
+   *
+   * @param aggregations - ES 집계 정의 객체
+   * @param options.query - 집계 전 적용할 필터 쿼리
+   * @returns 집계 타입에 맞게 추론된 결과 객체
+   */
   async aggregate<TAggregations extends Record<string, estypes.AggregationsAggregationContainer>>(
     aggregations: TAggregations,
     options: { query?: Record<string, unknown> } = {},
-  ): Promise<Record<keyof TAggregations, unknown>> {
+  ): Promise<AggregationsResult<TAggregations>> {
     const response = await this.raw.search<TDocument>({
       index: this.indexName,
       query: options.query,
@@ -351,7 +361,7 @@ export class EsIndexService<TDocument extends object> {
       size: 0,
     });
 
-    return (response.aggregations ?? {}) as Record<keyof TAggregations, unknown>;
+    return (response.aggregations ?? {}) as AggregationsResult<TAggregations>;
   }
 
   /**
