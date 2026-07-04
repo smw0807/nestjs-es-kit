@@ -4,7 +4,7 @@ import type { estypes } from '@elastic/elasticsearch';
 import { ES_KIT_CLIENT, ES_KIT_OPTIONS } from '../constants.js';
 import { BreakingSchemaChangeError, MigrationError } from '../errors/index.js';
 import { SchemaBuilder } from '../metadata/schema-builder.js';
-import { diffMappings } from '../migration/schema-diff.js';
+import { STATIC_SETTING_KEYS, diffMappings, diffSettings } from '../migration/schema-diff.js';
 import type { EsClient, EsDocumentClass, EsKitModuleOptions, MigrateOptions, MigrateResult, SchemaDiff } from '../types.js';
 
 /**
@@ -112,11 +112,15 @@ export class EsIndexManager implements OnModuleInit {
   }
 
   /**
-   * 코드로 선언된 매핑과 ES 실제 매핑의 차이를 계산합니다.
+   * 코드로 선언된 매핑·설정과 ES 실제 상태의 차이를 계산합니다.
    * 인덱스가 없으면 모든 필드를 `addedFields`로 반환합니다.
    *
+   * `settingsChanges`에는 변경된 설정 항목이 담깁니다:
+   * - `number_of_shards`, `analysis` 변경 → `isBreaking: true`
+   * - `number_of_replicas`, `refresh_interval` 등 → `syncMapping()`이 자동 반영
+   *
    * @param target - `@EsIndex`가 선언된 스키마 클래스
-   * @returns `addedFields`, `changedFields`, `removedFields`, `isBreaking` 포함한 차이 정보
+   * @returns 매핑·설정 차이 및 breaking 여부
    */
   async diff<TDocument extends object>(target: EsDocumentClass<TDocument>): Promise<SchemaDiff> {
     const schema = this.schemaBuilder.build(target);
@@ -131,10 +135,23 @@ export class EsIndexManager implements OnModuleInit {
       };
     }
 
-    const mappingResponse = await this.client.indices.getMapping({ index: schema.index });
-    const indexMapping = mappingResponse[schema.index]?.mappings.properties ?? {};
+    const [mappingResponse, settingsResponse] = await Promise.all([
+      this.client.indices.getMapping({ index: schema.index }),
+      this.client.indices.getSettings({ index: schema.index }),
+    ]);
 
-    return diffMappings(schema.mappings.properties, indexMapping as Record<string, never>);
+    const indexMapping = mappingResponse[schema.index]?.mappings.properties ?? {};
+    const mappingDiff = diffMappings(schema.mappings.properties, indexMapping as Record<string, never>);
+
+    const actualSettings = (settingsResponse[schema.index]?.settings?.index ?? {}) as Record<string, unknown>;
+    const declaredSettings = schema.settings ?? {};
+    const { changes: settingsChanges, isBreaking: settingsBreaking } = diffSettings(declaredSettings, actualSettings);
+
+    return {
+      ...mappingDiff,
+      settingsChanges,
+      isBreaking: mappingDiff.isBreaking || settingsBreaking,
+    };
   }
 
   /**
@@ -229,10 +246,13 @@ export class EsIndexManager implements OnModuleInit {
   }
 
   /**
-   * 인덱스 매핑을 코드와 동기화합니다.
+   * 인덱스 매핑·설정을 코드와 동기화합니다.
    * - 인덱스가 없으면 `create()`를 호출합니다.
-   * - Breaking 변경(필드 타입·분석기 변경)이 감지되면 `BreakingSchemaChangeError`를 던집니다.
-   * - 추가 필드만 있으면 `PUT /{index}/_mapping`으로 반영합니다.
+   * - Breaking 변경(필드 타입·분석기 변경, `number_of_shards`·`analysis` 변경)이 감지되면
+   *   `BreakingSchemaChangeError`를 던집니다.
+   * - 추가 필드는 `PUT /{index}/_mapping`으로 반영합니다.
+   * - 동적 설정(`number_of_replicas`, `refresh_interval` 등) 변경은
+   *   `PUT /{index}/_settings`로 자동 반영합니다.
    *
    * @param target - `@EsIndex`가 선언된 스키마 클래스
    * @throws `BreakingSchemaChangeError` — 재인덱싱이 필요한 변경이 감지된 경우
@@ -247,11 +267,30 @@ export class EsIndexManager implements OnModuleInit {
     const diff = await this.diff(target);
 
     if (diff.isBreaking) {
+      const breakingItems = [
+        ...diff.changedFields.map((f) => f.field),
+        ...diff.settingsChanges
+          .filter((s) => STATIC_SETTING_KEYS.has(s.setting))
+          .map((s) => `settings.${s.setting}`),
+      ];
       throw new BreakingSchemaChangeError(
-        `Breaking Elasticsearch schema change detected for ${schema.alias}: ${diff.changedFields
-          .map((field) => field.field)
-          .join(', ')}. Reindex migration is required.`,
+        `Breaking Elasticsearch schema change detected for ${schema.alias}: ${breakingItems.join(', ')}. Reindex migration is required.`,
       );
+    }
+
+    // 동적 설정 변경 자동 반영 (number_of_replicas, refresh_interval 등)
+    const dynamicChanges = diff.settingsChanges.filter((s) => !STATIC_SETTING_KEYS.has(s.setting));
+    if (dynamicChanges.length > 0) {
+      const updatedSettings = Object.fromEntries(dynamicChanges.map((s) => [s.setting, s.after]));
+      await this.client.indices.putSettings({
+        index: schema.index,
+        settings: { index: updatedSettings },
+      });
+      if (this.options.logger === true) {
+        this.logger.log(
+          `Updated settings for ${schema.index}: ${dynamicChanges.map((s) => s.setting).join(', ')}.`,
+        );
+      }
     }
 
     if (diff.addedFields.length > 0) {

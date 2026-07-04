@@ -1,4 +1,50 @@
-import type { EsFieldMapping, SchemaDiff } from '../types.js';
+import type { EsFieldMapping, SchemaDiff, SettingChange } from '../types.js';
+
+/**
+ * 재인덱싱 없이는 변경할 수 없는 ES 정적 설정 키.
+ * 이 키가 변경되면 `isBreaking: true`로 처리합니다.
+ */
+export const STATIC_SETTING_KEYS = new Set(['number_of_shards', 'analysis']);
+
+/**
+ * ES는 숫자 설정값을 문자열로 반환하므로(`"3"` vs `3`) 비교 전 정규화합니다.
+ * 객체는 JSON.stringify로 직렬화하여 비교합니다.
+ */
+const normalizeSettingValue = (val: unknown): string => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'object') return JSON.stringify(val);
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  return JSON.stringify(val);
+};
+
+/**
+ * 선언된 인덱스 설정과 ES 실제 설정을 비교하여 변경된 항목을 반환합니다.
+ *
+ * - `number_of_shards`, `analysis`는 정적 설정 → `isBreaking: true`
+ * - `number_of_replicas`, `refresh_interval` 등은 동적 설정 → `PUT /{index}/_settings`로 반영 가능
+ *
+ * @param declared - `@EsIndex` 스키마에서 빌드된 snake_case 설정 객체
+ * @param actual   - ES `GET /{index}/_settings` 응답의 `settings.index`
+ */
+export const diffSettings = (
+  declared: Record<string, unknown>,
+  actual: Record<string, unknown>,
+): { changes: SettingChange[]; isBreaking: boolean } => {
+  const changes: SettingChange[] = [];
+  let isBreaking = false;
+
+  for (const key of Object.keys(declared)) {
+    if (normalizeSettingValue(declared[key]) !== normalizeSettingValue(actual[key])) {
+      changes.push({ setting: key, before: actual[key], after: declared[key] });
+      if (STATIC_SETTING_KEYS.has(key)) {
+        isBreaking = true;
+      }
+    }
+  }
+
+  return { changes, isBreaking };
+};
 
 /**
  * 선언된 매핑(코드)과 실제 ES 인덱스 매핑을 비교하여 차이를 반환합니다.

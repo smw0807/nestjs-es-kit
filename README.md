@@ -265,7 +265,14 @@ Synchronization runs automatically at application bootstrap for every schema reg
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `'none'`   | Does nothing. Manage indices yourself.                                                                                                                                          |
 | `'create'` | Creates the index if it does not exist. No-op if it already exists. **(default)**                                                                                               |
-| `'sync'`   | Creates if missing. Adds newly declared fields via `PUT /{index}/_mapping`. Throws `BreakingSchemaChangeError` if a breaking change is detected (type change, analyzer change). |
+| `'sync'`   | Creates if missing. Detects mapping and settings changes: adds new fields via `PUT /_mapping`, applies dynamic settings via `PUT /_settings`, throws `BreakingSchemaChangeError` for breaking changes. |
+
+**`'sync'` detects two categories of settings changes:**
+
+| Setting | Category | Action |
+|---------|----------|--------|
+| `number_of_replicas`, `refresh_interval`, etc. | Dynamic | Auto-applied via `PUT /{index}/_settings` |
+| `number_of_shards`, `analysis` | Static | Throws `BreakingSchemaChangeError` — reindex required |
 
 **When to use each mode**
 
@@ -448,10 +455,11 @@ Throws `MigrationError` if the alias doesn't exist, `useAlias` is false, or the 
 ```ts
 const diff = await this.indexManager.diff(Product);
 
-diff.addedFields; // string[]     — safe to put_mapping
-diff.changedFields; // FieldChange[] — type/analyzer changed; ES forbids in-place update → reindex required
-diff.removedFields; // string[]     — informational (ES never deletes fields)
-diff.isBreaking; // boolean
+diff.addedFields;    // string[]       — safe to put_mapping
+diff.changedFields;  // FieldChange[]  — type/analyzer changed → reindex required
+diff.removedFields;  // string[]       — informational (ES never deletes fields)
+diff.settingsChanges; // SettingChange[] — changed settings ({ setting, before, after })
+diff.isBreaking;     // boolean — true when changedFields or static settings (number_of_shards, analysis) changed
 ```
 
 ---
@@ -650,7 +658,7 @@ Response when healthy:
 | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy              |
 | **v0.2** | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat                  |
-| **v0.3** | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types, `dynamic` mapping option |
+| **v0.3** | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types, `dynamic` mapping option, settings diff/sync in `synchronize: 'sync'` |
 | **v0.4** | `npx es-kit migrate` CLI, per-aggregation response type inference, nori user dictionary support                              |
 
 ---
