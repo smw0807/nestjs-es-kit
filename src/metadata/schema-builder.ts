@@ -9,7 +9,18 @@ import type {
   EsSchema,
 } from '../types.js';
 
+/**
+ * `@EsIndex` / `@EsField` 데코레이터 메타데이터를 읽어 `EsSchema`를 생성합니다.
+ * 인덱스 이름, 별칭, 매핑 프로퍼티, 인덱스 설정을 하나의 스키마 객체로 조립합니다.
+ */
 export class SchemaBuilder {
+  /**
+   * 스키마 클래스에서 `EsSchema`를 빌드합니다.
+   *
+   * @param target - `@EsIndex`와 하나 이상의 `@EsField`가 선언된 클래스
+   * @returns 물리 인덱스명, 별칭, 매핑, 설정을 포함한 스키마 객체
+   * @throws `SchemaMetadataError` — `@EsIndex` 또는 `@EsField`가 없을 때
+   */
   build<TDocument extends object>(target: EsDocumentClass<TDocument>): EsSchema {
     const storage = getMetadataStorage();
     const index = storage.getIndex(target);
