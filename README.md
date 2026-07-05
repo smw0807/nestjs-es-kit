@@ -18,6 +18,14 @@ class Product {
 }
 ```
 
+## What's new in 1.0.2
+
+- Safer zero-downtime migrations: aliases are swapped only after `reindex` completes without failures, timeouts, or version conflicts.
+- `scanAll()` now follows Elasticsearch's refreshed PIT IDs and closes the latest PIT to avoid stale cursor errors on long scans.
+- Recursive object/nested mapping diff: safe additions such as `seller.rating` are synced without forcing a reindex.
+- `@InjectIndex()` provider tokens are now schema-identity based, preventing collisions between classes with the same name.
+- CLI config validation now reports clear errors for missing `schemas`, invalid schema entries, and malformed `migrateOptions`.
+
 ---
 
 ## Why nestjs-es-kit?
@@ -28,7 +36,7 @@ The official `@nestjs/elasticsearch` (~131k weekly downloads) wraps the ES clien
 | -------------------------------------------------------------- | ----------------------------------------------------------- |
 | JSON mapping files disconnected from your TypeScript types     | Decorator schema — one source of truth                      |
 | Bootstrap code to check and create indices                     | `synchronize: 'create'`                                     |
-| Manual `put_mapping` for new fields                            | `synchronize: 'sync'`                                       |
+| Manual `put_mapping` for new fields, including nested additions | `synchronize: 'sync'` with recursive mapping diff            |
 | Figuring out which mapping changes need a full reindex         | `diff()` + `BreakingSchemaChangeError` with a clear message |
 | Chunk splitting, retry logic, partial failure parsing for bulk | `bulkIndex()`                                               |
 
@@ -272,7 +280,7 @@ Synchronization runs automatically at application bootstrap for every schema reg
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `'none'`   | Does nothing. Manage indices yourself.                                                                                                                                          |
 | `'create'` | Creates the index if it does not exist. No-op if it already exists. **(default)**                                                                                               |
-| `'sync'`   | Creates if missing. Detects mapping and settings changes: adds new fields via `PUT /_mapping`, applies dynamic settings via `PUT /_settings`, throws `BreakingSchemaChangeError` for breaking changes. |
+| `'sync'`   | Creates if missing. Detects mapping and settings changes: adds new top-level and object/nested fields via `PUT /_mapping`, applies dynamic settings via `PUT /_settings`, throws `BreakingSchemaChangeError` for breaking changes. |
 
 **`'sync'` detects two categories of settings changes:**
 
@@ -411,9 +419,11 @@ await this.products.closePit(pitId);
 
 // scanAll — async generator, opens/closes PIT automatically
 for await (const batch of this.products.scanAll({ batchSize: 500 })) {
-  // batch: Product[] — each iteration is one page
+  await processInBatch(batch); // batch: Product[]
 }
 ```
+
+`scanAll()` tracks the refreshed `pit_id` returned by Elasticsearch on every page and closes the latest PIT id when iteration ends.
 
 `scanAll` options:
 
@@ -472,12 +482,14 @@ Requirements:
 
 Throws `MigrationError` if the alias doesn't exist, `useAlias` is false, or the target version is already active.
 
+`migrate()` validates the `reindex` response before swapping aliases. If Elasticsearch reports failures, timeout, or version conflicts, the new index is deleted and the alias remains on the previous index.
+
 #### `SchemaDiff`
 
 ```ts
 const diff = await this.indexManager.diff(Product);
 
-diff.addedFields;    // string[]       — safe to put_mapping
+diff.addedFields;    // string[]       — safe to put_mapping; nested additions use dotted paths like 'seller.rating'
 diff.changedFields;  // FieldChange[]  — type/analyzer changed → reindex required
 diff.removedFields;  // string[]       — informational (ES never deletes fields)
 diff.settingsChanges; // SettingChange[] — changed settings ({ setting, before, after })
@@ -552,6 +564,7 @@ export default {
 ```
 
 > The config file imports from your **compiled** output (`dist/`). Run your TypeScript build first.
+> The CLI validates that `schemas` is a non-empty array of schema classes before connecting to Elasticsearch.
 
 #### 2. Run commands
 
@@ -762,6 +775,7 @@ Response when healthy:
 | **v0.3**     | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types, `dynamic` mapping option, settings diff/sync in `synchronize: 'sync'` |
 | **v0.4**     | `npx es-kit` CLI (`migrate`/`sync`/`diff`/`create`), `EsStandaloneManager`, per-aggregation response type inference, nori `userDictionaryRules` |
 | **v1.0.0** ✓ | Stable release — public API locked, semver enforced from here                                                               |
+| **v1.0.2** ✓ | Migration safety checks, latest PIT id tracking, recursive object/nested mapping sync, schema-identity DI tokens, CLI config validation |
 
 ---
 

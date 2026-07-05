@@ -1,5 +1,37 @@
 # nestjs-es-kit
 
+## 1.0.2
+
+### Patch Changes
+
+- **fix**: harden zero-downtime migrations
+
+  `EsIndexManager.migrate()` now validates the `reindex` response before swapping aliases.
+  If Elasticsearch reports failures, timeout, or version conflicts, the new index is cleaned up
+  and the alias remains pointed at the previous index.
+
+- **fix**: keep PIT scans on the latest PIT id
+
+  `EsIndexService.scanAll()` now reuses the refreshed `pit_id` returned by each search response
+  and closes the latest PIT id, avoiding stale cursor errors and leaked PIT resources on long scans.
+
+- **fix**: support recursive object/nested mapping diffs
+
+  Added fields inside `object` / `nested` properties are now reported as dotted paths
+  such as `seller.rating` and synced as non-breaking mapping additions.
+
+- **fix**: prevent `@InjectIndex()` provider token collisions
+
+  Index service provider tokens are now stable per schema class identity instead of relying on
+  class names, so two schemas with the same class name in different modules no longer collide.
+
+- **fix**: validate CLI config shape before running commands
+
+  The CLI now reports clear config errors for missing or invalid `schemas`, non-class schema
+  entries, and invalid `migrateOptions`.
+
+---
+
 ## 1.0.1
 
 ### Patch Changes

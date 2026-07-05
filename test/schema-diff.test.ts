@@ -43,4 +43,66 @@ describe('diffMappings', () => {
       isBreaking: true,
     });
   });
+
+  it('marks added nested object fields as non-breaking dotted paths', () => {
+    expect(
+      diffMappings(
+        {
+          seller: {
+            type: 'object',
+            properties: {
+              id: { type: 'keyword' },
+              rating: { type: 'integer' },
+            },
+          },
+        },
+        {
+          seller: {
+            type: 'object',
+            properties: {
+              id: { type: 'keyword' },
+            },
+          },
+        },
+      ),
+    ).toMatchObject({
+      addedFields: ['seller.rating'],
+      changedFields: [],
+      removedFields: [],
+      isBreaking: false,
+    });
+  });
+
+  it('marks nested object mapping changes as breaking dotted paths', () => {
+    expect(
+      diffMappings(
+        {
+          seller: {
+            type: 'object',
+            properties: {
+              rating: { type: 'integer' },
+            },
+          },
+        },
+        {
+          seller: {
+            type: 'object',
+            properties: {
+              rating: { type: 'long' },
+            },
+          },
+        },
+      ),
+    ).toMatchObject({
+      addedFields: [],
+      changedFields: [
+        {
+          field: 'seller.rating',
+          before: { type: 'long' },
+          after: { type: 'integer' },
+        },
+      ],
+      isBreaking: true,
+    });
+  });
 });

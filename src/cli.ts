@@ -1,8 +1,9 @@
 import 'reflect-metadata';
 
+import { realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { BreakingSchemaChangeError } from './errors/index.js';
 import { EsStandaloneManager } from './standalone.js';
@@ -37,6 +38,37 @@ Config file format (es-kit.config.js):
   };
 `.trim();
 
+export function validateCliConfig(config: unknown): EsKitCliConfig {
+  if (typeof config !== 'object' || config === null) {
+    throw new Error('Config file must export an object.');
+  }
+
+  if (!('node' in config) && !('cloud' in config)) {
+    throw new Error(`Config file must export an object with a 'node' or 'cloud' field.`);
+  }
+
+  if (!('schemas' in config) || !Array.isArray(config.schemas)) {
+    throw new Error('Config file must export a schemas array.');
+  }
+
+  if (config.schemas.length === 0) {
+    throw new Error('config.schemas is empty. Add at least one schema class.');
+  }
+
+  if (!config.schemas.every((schema): schema is EsDocumentClass => typeof schema === 'function')) {
+    throw new Error('config.schemas must contain schema classes.');
+  }
+
+  if ('migrateOptions' in config && config.migrateOptions !== undefined) {
+    const migrateOptions = config.migrateOptions;
+    if (typeof migrateOptions !== 'object' || migrateOptions === null || Array.isArray(migrateOptions)) {
+      throw new Error('config.migrateOptions must be an object when provided.');
+    }
+  }
+
+  return config as EsKitCliConfig;
+}
+
 async function loadConfig(configPath: string): Promise<EsKitCliConfig> {
   const absPath = resolve(process.cwd(), configPath);
   const fileUrl = pathToFileURL(absPath).href;
@@ -45,10 +77,7 @@ async function loadConfig(configPath: string): Promise<EsKitCliConfig> {
   const mod = await import(fileUrl);
   // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
   const config: unknown = (mod.default as unknown) ?? mod;
-  if (typeof config !== 'object' || config === null || !('node' in config)) {
-    throw new Error(`Config file must export an object with at least a 'node' field.`);
-  }
-  return config as EsKitCliConfig;
+  return validateCliConfig(config);
 }
 
 function formatDiff(name: string, diff: SchemaDiff): string {
@@ -106,11 +135,6 @@ async function main(): Promise<void> {
 
   const config = await loadConfig(configPath);
   const schemas = config.schemas;
-
-  if (schemas.length === 0) {
-    console.error('Error: config.schemas is empty. Add at least one schema class.');
-    process.exit(1);
-  }
 
   const manager = new EsStandaloneManager(config);
 
@@ -170,7 +194,21 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error('Error:', error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const isDirectRun = (): boolean => {
+  if (process.argv[1] === undefined) {
+    return false;
+  }
+
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+};
+
+if (isDirectRun()) {
+  main().catch((error: unknown) => {
+    console.error('Error:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

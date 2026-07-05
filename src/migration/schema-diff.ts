@@ -60,24 +60,70 @@ export const diffMappings = (
   declared: Record<string, EsFieldMapping>,
   actual: Record<string, EsFieldMapping>,
 ): SchemaDiff => {
-  const declaredKeys = Object.keys(declared);
-  const actualKeys = Object.keys(actual);
-  const addedFields = declaredKeys.filter((field) => !(field in actual));
-  const removedFields = actualKeys.filter((field) => !(field in declared));
-  const changedFields = declaredKeys
-    .filter((field) => field in actual)
-    .filter((field) => JSON.stringify(declared[field]) !== JSON.stringify(actual[field]))
-    .map((field) => ({
-      field,
-      before: actual[field],
-      after: declared[field],
-    }));
+  const result: SchemaDiff = {
+    addedFields: [],
+    changedFields: [],
+    removedFields: [],
+    settingsChanges: [],
+    isBreaking: false,
+  };
+
+  collectMappingDiff('', declared, actual, result);
 
   return {
-    addedFields,
-    changedFields,
-    removedFields,
-    settingsChanges: [],
-    isBreaking: changedFields.length > 0,
+    ...result,
+    isBreaking: result.changedFields.length > 0,
   };
+};
+
+const collectMappingDiff = (
+  prefix: string,
+  declared: Record<string, EsFieldMapping>,
+  actual: Record<string, EsFieldMapping>,
+  result: SchemaDiff,
+): void => {
+  const declaredKeys = Object.keys(declared);
+  const actualKeys = Object.keys(actual);
+
+  for (const field of declaredKeys) {
+    const path = joinPath(prefix, field);
+    const declaredMapping = declared[field];
+    const actualMapping = actual[field];
+
+    if (declaredMapping === undefined) {
+      continue;
+    }
+
+    if (actualMapping === undefined) {
+      result.addedFields.push(path);
+      continue;
+    }
+
+    if (JSON.stringify(withoutProperties(declaredMapping)) !== JSON.stringify(withoutProperties(actualMapping))) {
+      result.changedFields.push({
+        field: path,
+        before: actualMapping,
+        after: declaredMapping,
+      });
+      continue;
+    }
+
+    if (declaredMapping.properties !== undefined || actualMapping.properties !== undefined) {
+      collectMappingDiff(path, declaredMapping.properties ?? {}, actualMapping.properties ?? {}, result);
+    }
+  }
+
+  for (const field of actualKeys) {
+    if (!(field in declared)) {
+      result.removedFields.push(joinPath(prefix, field));
+    }
+  }
+};
+
+const joinPath = (prefix: string, field: string): string => (prefix.length === 0 ? field : `${prefix}.${field}`);
+
+const withoutProperties = (mapping: EsFieldMapping): Omit<EsFieldMapping, 'properties'> => {
+  const rest: EsFieldMapping = { ...mapping };
+  delete rest.properties;
+  return rest;
 };

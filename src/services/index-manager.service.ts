@@ -213,11 +213,22 @@ export class EsIndexManager implements OnModuleInit {
     }
     await this.client.indices.create(request);
 
-    const reindexResponse = await this.client.reindex({
-      source: { index: oldIndex },
-      dest: { index: schema.index },
-      wait_for_completion: true,
-    });
+    let reindexResponse: estypes.ReindexResponse;
+    try {
+      reindexResponse = await this.client.reindex({
+        source: { index: oldIndex },
+        dest: { index: schema.index },
+        wait_for_completion: true,
+      });
+
+      this.assertSuccessfulReindex(schema.index, reindexResponse);
+    } catch (error) {
+      await this.client.indices.delete({ index: schema.index, ignore_unavailable: true }).catch(() => undefined);
+      if (error instanceof MigrationError) {
+        throw error;
+      }
+      throw new MigrationError(`Failed to reindex ${oldIndex} into ${schema.index}.`, { cause: error });
+    }
 
     await this.client.indices.updateAliases({
       actions: [
@@ -294,13 +305,78 @@ export class EsIndexManager implements OnModuleInit {
     }
 
     if (diff.addedFields.length > 0) {
-      const properties = Object.fromEntries(
-        diff.addedFields.flatMap((field) => {
-          const property = schema.mappings.properties[field];
-          return property === undefined ? [] : [[field, property]];
-        }),
-      ) as Record<string, estypes.MappingProperty>;
+      const properties = this.buildAddedProperties(
+        diff.addedFields,
+        schema.mappings.properties as unknown as Record<string, estypes.MappingProperty>,
+      );
       await this.client.indices.putMapping({ index: schema.index, properties });
     }
+  }
+
+  private assertSuccessfulReindex(index: string, response: estypes.ReindexResponse): void {
+    const failures = response.failures ?? [];
+    if (response.timed_out === true || failures.length > 0 || (response.version_conflicts ?? 0) > 0) {
+      throw new MigrationError(
+        `Reindex into ${index} did not complete cleanly: timed_out=${String(response.timed_out ?? false)}, failures=${String(failures.length)}, version_conflicts=${String(response.version_conflicts ?? 0)}.`,
+      );
+    }
+  }
+
+  private buildAddedProperties(
+    paths: readonly string[],
+    properties: Record<string, estypes.MappingProperty>,
+  ): Record<string, estypes.MappingProperty> {
+    const additions: Record<string, estypes.MappingProperty> = {};
+
+    for (const path of paths) {
+      const built = this.buildAddedProperty(path.split('.'), properties);
+      if (built === undefined) {
+        continue;
+      }
+
+      additions[built.name] = built.mapping;
+    }
+
+    return additions;
+  }
+
+  private buildAddedProperty(
+    parts: readonly string[],
+    properties: Record<string, estypes.MappingProperty>,
+  ): { name: string; mapping: estypes.MappingProperty } | undefined {
+    const [name, ...rest] = parts;
+    if (name === undefined) {
+      return undefined;
+    }
+
+    const mapping = properties[name];
+    if (mapping === undefined) {
+      return undefined;
+    }
+
+    if (rest.length === 0) {
+      return { name, mapping };
+    }
+
+    const mappingWithProperties = mapping as estypes.MappingProperty & {
+      properties?: Record<string, estypes.MappingProperty>;
+    };
+    const child = this.buildAddedProperty(rest, mappingWithProperties.properties ?? {});
+    if (child === undefined) {
+      return undefined;
+    }
+
+    const baseMapping = { ...mappingWithProperties };
+    delete baseMapping.properties;
+
+    return {
+      name,
+      mapping: {
+        ...baseMapping,
+        properties: {
+          [child.name]: child.mapping,
+        },
+      } as estypes.MappingProperty,
+    };
   }
 }

@@ -296,7 +296,7 @@ export class EsIndexService<TDocument extends object> {
       ? ([...options.sort, { _shard_doc: 'asc' }] as estypes.Sort)
       : ([{ _doc: 'asc' }, { _shard_doc: 'asc' }] as estypes.Sort);
 
-    const pitId = await this.openPit(keepAlive);
+    let pitId = await this.openPit(keepAlive);
     let searchAfter: estypes.SortResults | undefined;
     let done = false;
 
@@ -311,6 +311,10 @@ export class EsIndexService<TDocument extends object> {
         };
 
         const response = await this.raw.search<TDocument>(request);
+        if (typeof response.pit_id === 'string' && response.pit_id.length > 0) {
+          pitId = response.pit_id;
+        }
+
         const hits = response.hits.hits.filter(
           (hit): hit is estypes.SearchHit<TDocument> & { _source: TDocument } => hit._source !== undefined,
         );

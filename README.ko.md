@@ -18,6 +18,14 @@ class Product {
 }
 ```
 
+## 1.0.2 변경 사항
+
+- 무중단 마이그레이션 안정성 강화: `reindex`가 실패·timeout·version conflict 없이 완료된 경우에만 alias를 교체합니다.
+- `scanAll()`이 Elasticsearch가 매 페이지 반환하는 최신 PIT ID를 따라가고, 종료 시 최신 PIT를 닫습니다.
+- object/nested 매핑 diff를 재귀 처리합니다. `seller.rating` 같은 안전한 중첩 필드 추가는 reindex 없이 동기화됩니다.
+- `@InjectIndex()` 프로바이더 토큰을 스키마 클래스 identity 기반으로 바꿔, 같은 이름의 클래스가 서로 충돌하지 않게 했습니다.
+- CLI config 검증을 강화해 `schemas` 누락, 잘못된 schema 값, 잘못된 `migrateOptions`를 명확한 에러로 알려줍니다.
+
 ---
 
 ## 왜 nestjs-es-kit인가?
@@ -28,7 +36,7 @@ class Product {
 | ------------------------------------------------- | ------------------------------------------------------------ |
 | 타입과 따로 노는 JSON 매핑 파일 관리              | 데코레이터 스키마 — 단일 소스 오브 트루스                    |
 | 인덱스 존재 여부 확인 후 생성하는 부트스트랩 코드 | `synchronize: 'create'`                                      |
-| 새 필드 추가 시 수동 `put_mapping`                | `synchronize: 'sync'`                                        |
+| 새 필드 및 중첩 필드 추가 시 수동 `put_mapping`    | 재귀 매핑 diff가 포함된 `synchronize: 'sync'`                 |
 | 어떤 매핑 변경이 reindex를 필요로 하는지 파악     | `diff()` + `BreakingSchemaChangeError` (변경 필드 목록 포함) |
 | bulk 청크 분할, 재시도, 부분 실패 파싱            | `bulkIndex()`                                                |
 
@@ -272,7 +280,7 @@ EsKitModule.forFeature([Product, Order]);
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `'none'`   | 아무것도 하지 않습니다. 인덱스를 직접 관리합니다.                                                                                                                                         |
 | `'create'` | 인덱스가 없으면 생성합니다. 이미 있으면 아무것도 하지 않습니다. **(기본값)**                                                                                                              |
-| `'sync'`   | 없으면 생성합니다. 매핑과 설정 변경을 감지합니다: 새 필드는 `PUT /_mapping`으로 추가, 동적 설정은 `PUT /_settings`로 자동 적용, 파괴적 변경은 `BreakingSchemaChangeError`를 던집니다. |
+| `'sync'`   | 없으면 생성합니다. 매핑과 설정 변경을 감지합니다: top-level 및 object/nested 새 필드는 `PUT /_mapping`으로 추가, 동적 설정은 `PUT /_settings`로 자동 적용, 파괴적 변경은 `BreakingSchemaChangeError`를 던집니다. |
 
 **`'sync'`의 설정 변경 분류:**
 
@@ -411,9 +419,11 @@ await this.products.closePit(pitId);
 
 // scanAll — 비동기 제너레이터, PIT를 자동으로 열고 닫음
 for await (const batch of this.products.scanAll({ batchSize: 500 })) {
-  // batch: Product[] — 각 반복이 한 페이지
+  await processInBatch(batch); // batch: Product[]
 }
 ```
+
+`scanAll()`은 Elasticsearch가 매 페이지 반환하는 갱신된 `pit_id`를 추적하고, 반복이 끝나면 최신 PIT ID를 닫습니다.
 
 `scanAll` 옵션:
 
@@ -472,12 +482,14 @@ const result = await indexManager.migrate(ProductV2, { deleteOldIndex: false });
 
 alias가 없거나 `useAlias`가 false이거나 대상 버전이 이미 활성화된 경우 `MigrationError`를 던집니다.
 
+`migrate()`는 alias를 교체하기 전에 `reindex` 응답을 검증합니다. Elasticsearch가 실패, timeout, version conflict를 보고하면 새 인덱스를 삭제하고 alias는 이전 인덱스를 계속 가리키도록 유지합니다.
+
 #### `SchemaDiff`
 
 ```ts
 const diff = await this.indexManager.diff(Product);
 
-diff.addedFields;     // string[]        — put_mapping으로 추가 가능
+diff.addedFields;     // string[]        — put_mapping으로 추가 가능; 중첩 필드 추가는 'seller.rating' 같은 dotted path
 diff.changedFields;   // FieldChange[]   — 타입/분석기 변경 → ES에서 직접 수정 불가, reindex 필요
 diff.removedFields;   // string[]        — 정보 제공용 (ES는 필드를 삭제하지 않음)
 diff.settingsChanges; // SettingChange[] — 변경된 설정 ({ setting, before, after })
@@ -554,6 +566,7 @@ export default {
 ```
 
 > 설정 파일은 **컴파일된** 출력(`dist/`)에서 불러옵니다. TypeScript 빌드를 먼저 실행하세요.
+> CLI는 Elasticsearch에 연결하기 전에 `schemas`가 비어 있지 않은 schema class 배열인지 검증합니다.
 
 #### 2. 커맨드 실행
 
@@ -764,6 +777,7 @@ export class HealthController {
 | **v0.3**     | `scanAll()` PIT 기반 비동기 제너레이터, `openPit`/`closePit`, 타입 쿼리 DSL, 확장 정렬 타입, `dynamic` 매핑 옵션, `synchronize: 'sync'` 설정 diff/sync |
 | **v0.4**     | `npx es-kit` CLI (`migrate`/`sync`/`diff`/`create`), `EsStandaloneManager`, 집계별 응답 타입 추론, nori `userDictionaryRules`                         |
 | **v1.0.0** ✓ | 정식 안정 릴리스 — 공개 API 확정, 이후 변경은 semver major 규칙 적용                                                                                  |
+| **v1.0.2** ✓ | 마이그레이션 안전 검증, 최신 PIT ID 추적, object/nested 재귀 매핑 sync, 스키마 identity 기반 DI 토큰, CLI config 검증                                  |
 
 ---
 
