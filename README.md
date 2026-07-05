@@ -234,6 +234,13 @@ EsKitModule.forRoot({
 
 All options extend `@elastic/elasticsearch` `ClientOptions` — the ES client receives them directly.
 
+**nestjs-es-kit specific options:**
+
+| Option        | Type              | Default     | Description                                                    |
+| ------------- | ----------------- | ----------- | -------------------------------------------------------------- |
+| `synchronize` | `EsSynchronizeMode` | `'create'` | Index synchronization strategy at bootstrap (see [synchronize Modes](#synchronize-modes)) |
+| `logger`      | `boolean`         | `false`     | Log index create / migrate / settings-update events via NestJS `Logger` |
+
 #### `EsKitModule.forRootAsync(options)`
 
 ```ts
@@ -540,6 +547,7 @@ export default {
     password: process.env.ES_PASSWORD ?? '',
   },
   schemas: [ProductV2, Order],
+  migrateOptions: { deleteOldIndex: false }, // default options for the migrate command
 };
 ```
 
@@ -747,12 +755,13 @@ Response when healthy:
 
 ## Roadmap
 
-| Version  | Scope                                                                                                                        |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **v0.1** | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy              |
-| **v0.2** | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat                  |
-| **v0.3** | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types, `dynamic` mapping option, settings diff/sync in `synchronize: 'sync'` |
-| **v0.4** | `npx es-kit` CLI (`migrate`/`sync`/`diff`/`create`), `EsStandaloneManager`, per-aggregation response type inference, nori `userDictionaryRules` |
+| Version      | Scope                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **v0.1**     | Decorator schema, forRoot/forFeature, synchronize, CRUD, bulk, search, aggregate, nori preset, error hierarchy              |
+| **v0.2**     | `migrate()` zero-downtime alias-swap reindex, `EsHealthIndicator` terminus integration, ES 9.x nori compat                  |
+| **v0.3**     | `scanAll()` PIT-based async generator, `openPit`/`closePit`, typed query DSL (`QueryDslQueryContainer`), extended sort types, `dynamic` mapping option, settings diff/sync in `synchronize: 'sync'` |
+| **v0.4**     | `npx es-kit` CLI (`migrate`/`sync`/`diff`/`create`), `EsStandaloneManager`, per-aggregation response type inference, nori `userDictionaryRules` |
+| **v1.0.0** ✓ | Stable release — public API locked, semver enforced from here                                                               |
 
 ---
 
